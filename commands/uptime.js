@@ -1,58 +1,90 @@
 
+/**
+ * File Name: uptime.js
+ * ICA: igbot-api
+ * Author: Tanvir Ahmed (Tanvir143)
+ * GitHub: www.github.com/143tanvir
+ * WhatsApp: +8801750079773
+ */
+
+"use strict";
+
+const os = require("os");
+
+function formatUptime(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts = [];
+
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+
+  parts.push(`${seconds}s`);
+
+  return parts.join(" ");
+}
+
+async function getCount(store) {
+  if (!store) return null;
+
+  if (typeof store.countDocuments === "function") {
+    return await store.countDocuments();
+  }
+
+  if (typeof store.count === "function") {
+    return await store.count();
+  }
+
+  return null;
+}
+
 module.exports = {
-  config: {
-    name: "uptime",
-    aliases: ["up", "status"],
-    version: "2.0.0",
-    author: "Tanvir Ahmed (Tanvir143)",
-    countDown: 5,
-    role: 0,
-    shortDescription: "Show bot status",
-    category: "system"
-  },
+  name: "uptime",
+  aliases: ["up", "status"],
+  description: "Show bot uptime and database statistics",
+  usage: "uptime",
 
-  onStart: async function ({ message, api }) {
-    const formatTime = (seconds) => {
-      const d = Math.floor(seconds / 86400);
-      const h = Math.floor((seconds % 86400) / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      const s = Math.floor(seconds % 60);
-
-      return `${d}d ${h}h ${m}m ${s}s`;
-    };
+  async execute({ api, event }) {
+    const startedAt = global.instabotStartedAt || Date.now();
+    const uptime = formatUptime(Date.now() - startedAt);
 
     let users = "Unavailable";
-    let threads = "Unavailable";
+    let groups = "Unavailable";
 
     try {
       const db = global.database;
 
       if (db) {
-        if (db.ready) await db.ready;
+        const [userCount, groupCount] = await Promise.all([
+          getCount(db.users),
+          getCount(db.threads)
+        ]);
 
-        if (db.users && typeof db.users.count === "function") {
-          users = await db.users.count();
-        }
-
-        if (db.threads && typeof db.threads.count === "function") {
-          threads = await db.threads.count();
-        }
+        if (userCount !== null) users = userCount;
+        if (groupCount !== null) groups = groupCount;
       }
-    } catch (err) {
-      console.error("[UPTIME DATABASE]", err);
+    } catch (error) {
+      console.error("[UPTIME] Database count failed:", error.message);
     }
 
-    const uptime = formatTime(process.uptime());
+    const memory = process.memoryUsage();
+    const ram = (memory.rss / 1024 / 1024).toFixed(1);
 
-    return message.reply(
-      `╭───〔 BOT STATUS 〕\n` +
-      `│ Status: Online 🟢\n` +
-      `│ Uptime: ${uptime}\n` +
-      `├───〔 DATABASE 〕\n` +
-      `│ Users: ${users}\n` +
-      `│ Threads: ${threads}\n` +
-      `│ Groups: ${threads}\n` +
-      `╰────────────────`
-    );
+    const message = [
+      "╭─〔 BOT STATUS 〕",
+      `│ Uptime: ${uptime}`,
+      `│ Groups: ${groups}`,
+      `│ Users: ${users}`,
+      `│ RAM: ${ram} MB`,
+      "╰──────────────"
+    ].join("\n");
+
+    return api.sendMessage(message, event.threadID);
   }
 };
