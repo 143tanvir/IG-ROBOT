@@ -12,8 +12,7 @@
   "language": "en",
   "adminBot": [
     "62599140277",
-    "37722988100",
-    "52943709733"
+    "37722988100"
   ],
   "nickNameOnStart": "Tanvir143_igBot",
   "env": {
@@ -65,7 +64,7 @@
   "cooldown": {
     "default": 1
   },
-  "selfListen": true,
+  "selfListen": false,
   "listenEvents": true,
   "autoMarkRead": false,
   "autoMarkDelivery": true,
