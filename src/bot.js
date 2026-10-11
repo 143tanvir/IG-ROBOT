@@ -1,17 +1,13 @@
 /**
  * File Name: bot.js
  * ICA: igbot-api
- * Auhor: Tanvir Ahmed (Tanvir143)
+ * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
  * WhatsApp: +8801750079773
  * Note: Project metadata only; original source credits and license notices are retained.
  */
 
 "use strict";
-/*
- * Tanvir Ahmed
- * Github: www.github.com/143tanvir
- */
 
 const log = require("./logger");
 const { loadAccount } = require("./config");
@@ -523,10 +519,7 @@ function createBot(config) {
         logType === "log:unsubscribe"
       ) {
         try {
-          log.info(
-            "ICA_MEMBERSHIP_RAW",
-            JSON.stringify(rawEvent)
-          );
+          log.info("ICA_MEMBERSHIP_RAW", JSON.stringify(rawEvent));
         } catch (_) {
           log.warn(
             "ICA_MEMBERSHIP_RAW",
@@ -698,6 +691,21 @@ function createBot(config) {
 
   async function start() {
     log.master("BOOT", `${config.botName} starting…`);
+
+    try {
+      if (database.ready) {
+        await database.ready;
+      }
+
+      log.success(
+        "DATABASE",
+        `Database ready (${database.provider || "default"})`
+      );
+    } catch (error) {
+      log.error("DATABASE", "Database initialization failed", error);
+      throw error;
+    }
+
     loadCommands();
 
     let attempt = 0;
@@ -709,6 +717,8 @@ function createBot(config) {
         await startServer();
         break;
       } catch (error) {
+        if (state.stopping) return;
+
         attempt++;
 
         const message = String(
@@ -744,6 +754,8 @@ function createBot(config) {
   }
 
   async function stop() {
+    if (state.stopping) return;
+
     state.running = false;
     state.stopping = true;
 
@@ -755,7 +767,12 @@ function createBot(config) {
       if (typeof state.stopListening === "function") {
         state.stopListening();
       }
-    } catch (_) {}
+    } catch (error) {
+      log.warn("LISTEN", "Error while stopping listener", error);
+    }
+
+    state.stopListening = null;
+    state.listening = false;
 
     if (state.restartTimer) {
       clearInterval(state.restartTimer);
@@ -767,7 +784,29 @@ function createBot(config) {
       state.retireListener = null;
     }
 
-    database.flush();
+    try {
+      if (typeof database.flush === "function") {
+        await database.flush();
+      }
+    } catch (error) {
+      log.error("DATABASE", "Failed to flush database", error);
+    }
+
+    try {
+      if (typeof onlineStatus.stop === "function") {
+        await onlineStatus.stop();
+      }
+    } catch (error) {
+      log.warn("STATUS", "Error while stopping online status", error);
+    }
+
+    try {
+      if (typeof database.close === "function") {
+        await database.close();
+      }
+    } catch (error) {
+      log.error("DATABASE", "Failed to close database", error);
+    }
 
     log.master("BOOT", `${config.botName} stopped`);
   }
