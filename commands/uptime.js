@@ -9,22 +9,22 @@
 
 "use strict";
 
-const AVATAR_EFFECTS = ["love", "love", "love", "cry"];
+const AVATAR_EFFECTS = ["cry"];
 
 function formatDuration(ms) {
-	let s = Math.floor(ms / 1000);
-	const d = Math.floor(s / 86400);
-	s %= 86400;
-	const h = Math.floor(s / 3600);
-	s %= 3600;
-	const m = Math.floor(s / 60);
-	s %= 60;
+	let seconds = Math.floor(Math.max(0, ms) / 1000);
+	const days = Math.floor(seconds / 86400);
+	seconds %= 86400;
+	const hours = Math.floor(seconds / 3600);
+	seconds %= 3600;
+	const minutes = Math.floor(seconds / 60);
+	seconds %= 60;
 
 	return [
-		d && `${d}d`,
-		h && `${h}h`,
-		m && `${m}m`,
-		`${s}s`
+		days ? `${days}d` : null,
+		hours ? `${hours}h` : null,
+		minutes ? `${minutes}m` : null,
+		`${seconds}s`
 	].filter(Boolean).join(" ");
 }
 
@@ -32,38 +32,49 @@ async function getStats() {
 	const db = global.database;
 
 	if (!db) {
-		return { users: "N/A", threads: "N/A", groups: "N/A" };
+		return { users: "Unavailable", threads: "Unavailable" };
 	}
 
 	try {
 		if (db.ready) await db.ready;
 
-		const read = async store => {
-			if (!store) return null;
+		async function count(store) {
+			if (!store) return "Unavailable";
+
+			if (typeof store.countDocuments === "function") {
+				return await store.countDocuments({});
+			}
+
+			if (store.collection &&
+				typeof store.collection.countDocuments === "function") {
+				return await store.collection.countDocuments({});
+			}
+
 			if (typeof store.all === "function") {
 				const data = await store.all();
-				if (Array.isArray(data)) return data;
-				if (data instanceof Map) return [...data.values()];
+
+				if (Array.isArray(data)) return data.length;
+				if (data instanceof Map) return data.size;
 				if (data && typeof data === "object") {
-					return Object.values(data);
+					return Object.keys(data).length;
 				}
 			}
-			return null;
-		};
 
-		const users = await read(db.users);
-		const threads = await read(db.threads);
+			if (typeof store.getAll === "function") {
+				const data = await store.getAll();
+				if (Array.isArray(data)) return data.length;
+			}
+
+			return "Unavailable";
+		}
 
 		return {
-			users: users ? users.length : "N/A",
-			threads: threads ? threads.length : "N/A",
-			groups: threads
-				? threads.filter(t => t && t.isGroup === true).length
-				: "N/A"
+			users: await count(db.users),
+			threads: await count(db.threads)
 		};
-	} catch (e) {
-		console.error("[UPTIME] Stats error:", e.message);
-		return { users: "N/A", threads: "N/A", groups: "N/A" };
+	} catch (error) {
+		console.error("[UPTIME] Database count error:", error.message);
+		return { users: "Unavailable", threads: "Unavailable" };
 	}
 }
 
@@ -85,12 +96,14 @@ module.exports = {
 		const startedAt = global.instabotStartedAt || Date.now();
 		const stats = await getStats();
 
-		let version = "0.0.3";
+		let version = "1.0.0";
+
 		try {
 			version = require("../package.json").version || version;
 		} catch (_) {}
 
-		const botName = (config && config.botName) || "Tanvir143_igBot";
+		const botName =
+			(config && config.botName) || "Tanvir143_igBot";
 
 		const body = [
 			"╭───〔 BOT STATUS 〕",
@@ -100,7 +113,7 @@ module.exports = {
 			"├───〔 DATABASE 〕",
 			`│ Users: ${stats.users}`,
 			`│ Threads: ${stats.threads}`,
-			`│ Groups: ${stats.groups}`,
+			`│ Groups: ${stats.threads}`,
 			"├───〔 INFO 〕",
 			`│ Version: v${version}`,
 			"╰────────────────"
