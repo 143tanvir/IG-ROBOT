@@ -1,0 +1,10 @@
+# File Name: account.txt
+# ICA: igbot-api
+# Auhor: Tanvir Ahmed (Tanvir143)
+# GitHub: www.github.com/143tanvir
+# WhatsApp: +8801750079773
+# Note: Project metadata only; original source credits and license notices are retained.
+# Original attribution/license notices below are preserved.
+
+# SECURITY: Original Instagram cookie/session values were removed from this shared copy.
+# Re-export fresh cookies locally; do not commit or share account.txt.

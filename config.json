@@ -1,0 +1,94 @@
+{
+  "_projectHeader": {
+    "File Name": "config.json",
+    "ICA": "igbot-api",
+    "Auhor": "Tanvir Ahmed (Tanvir143)",
+    "GitHub": "www.github.com/143tanvir",
+    "WhatsApp": "+8801750079773",
+    "Note": "Project metadata only; original source credits and license notices are retained."
+  },
+  "botName": "Tanvir143_igBot",
+  "prefix": ".",
+  "language": "en",
+  "adminBot": [
+    "62599140277",
+    "37722988100",
+    "52943709733"
+  ],
+  "nickNameOnStart": "Tanvir143_igBot",
+  "env": {
+    "token": "",
+    "url": "",
+    "notes": "Optional custom-command API credentials. Set INSTABOT_TOKEN / INSTABOT_URL as environment variables when needed."
+  },
+  "account": {
+    "proxy": null,
+    "userAgent": null,
+    "notes": "Instagram login is cookie-only. Put your Instagram cookies in account.txt: a Netscape cookie file (Cookie-Editor export), a `sessionid=...; ds_user_id=...; csrftoken=...` string, or a JSON array of cookie objects. `sessionid` and `ds_user_id` are required. `proxy` is an optional HTTP(S) proxy URL and `userAgent` overrides the default Instagram Android user agent."
+  },
+  "music": {
+    "enable": true,
+    "apiUrl": "",
+    "apiToken": "",
+    "notes": "Song search for the sing command. Leave apiUrl/apiToken blank to search Instagram's own music catalogue. Point them at your music server to search there instead; {query} is replaced with the song text."
+  },
+  "antiInbox": false,
+  "noPrefix": false,
+  "welcome": {
+    "enable": true,
+    "message": "%1 Welcome to %2! Group.🎀",
+    "threadIDs": [],
+    "selfMessage": "Thanks for adding me to %2 group.\n Type {prefix}help to see all available commands.",
+    "notes": "Greet members added to a group thread. %1 = the new member, %2 = the thread name. selfMessage is sent when the BOT itself is added ({prefix} = the live prefix, %2 = the group name). Leave threadIDs empty for every thread, or list the thread IDs to limit it."
+  },
+  "leave": {
+    "enable": true,
+    "message": "%1 He/She is no more this group.. ",
+    "threadIDs": [],
+    "notes": "Announce members who leave or are removed from a group thread. %1 = the member, %2 = the thread name. Leave threadIDs empty for every thread."
+  },
+  "adminOnly": {
+    "enable": false,
+    "ignoreCommands": []
+  },
+  "whiteList": {
+    "enable": false,
+    "userIDs": [],
+    "threadIDs": []
+  },
+  "hideNotiMessage": {
+    "commandNotFound": false,
+    "adminOnly": false,
+    "userBanned": false,
+    "needRoleToUseCommand": false
+  },
+  "cooldown": {
+    "default": 1
+  },
+  "selfListen": true,
+  "listenEvents": true,
+  "autoMarkRead": false,
+  "autoMarkDelivery": true,
+  "autoReconnect": true,
+  "restartListenInterval": 0,
+  "logEvents": {
+    "disableAll": false,
+    "message": true,
+    "message_reply": true,
+    "message_reaction": true,
+    "message_unsend": true,
+    "read_receipt": false,
+    "typ": false
+  },
+  "onlineStatus": {
+    "enable": true,
+    "file": "data/online-status.jsonl",
+    "interval": 60000,
+    "notes": "Appends one JSON line per interval recording that the bot is online, together with uptime and basic stats."
+  },
+  "database": {
+    "dir": "data",
+    "autoRefreshThreadInfo": true,
+    "notes": "Simple JSON storage for users and threads. Files are created automatically."
+  }
+}
