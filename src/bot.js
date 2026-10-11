@@ -1,3 +1,4 @@
+
 /**
  * File Name: bot.js
  * ICA: igbot-api
@@ -353,6 +354,10 @@ function createBot(config) {
   global.instabotStartedAt = startedAt;
 
   const database = createDatabase(config);
+
+  // Make the database available to commands such as uptime.js.
+  global.database = database;
+
   const registry = createRegistry();
 
   const state = {
