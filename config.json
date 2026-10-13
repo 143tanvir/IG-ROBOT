@@ -69,7 +69,7 @@
   "autoMarkRead": false,
   "autoMarkDelivery": true,
   "autoReconnect": true,
-  "restartListenInterval": 0,
+  "restartListenInterval": 3600000,
   "logEvents": {
     "disableAll": false,
     "message": true,
