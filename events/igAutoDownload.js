@@ -399,6 +399,7 @@ async function tanvir143HandleMessage(api, event) {
 module.exports = {
     config: {
         name: "igAutoDownload",
+        category: "tools",
         eventType: ["message"],
         author: "Tanvir Ahmed (Tanvir143)"
     },
