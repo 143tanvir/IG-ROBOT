@@ -1,8 +1,7 @@
-
 /**
  * File Name: pair.js
  * ICA: igbot-api
- * Auhor: Tanvir Ahmed (Tanvir143)
+ * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
  * WhatsApp: +8801750079773
  * Note: Project metadata only; original source credits and license notices are retained.
@@ -43,7 +42,7 @@ module.exports = {
 			en: "Create a random pair card"
 		},
 		usage: {
-			en: ".pair | .pair boy | .pair girl | .pair boy @user1 @user2 | .pair girl @user1 @user2 | .pair boy rmv @user"
+			en: ".pair | reply + .pair | .pair @user | .pair @user1 @user2 | .pair random | .pair boy | .pair girl"
 		}
 	},
 
@@ -51,287 +50,395 @@ module.exports = {
 		message,
 		args,
 		event,
-		api,
-		threadsData
+		api
 	}) {
 		try {
-			const senderID = String(event.senderID || event.userID || "");
-			const threadID = String(event.threadID || "");
-			const input = (args || []).map(value => String(value || "").trim()).filter(Boolean);
-			const action = (input[0] || "").toLowerCase();
-			const subAction = (input[1] || "").toLowerCase();
-			const isGender = action === "boy" || action === "girl";
-			const isRemove = isGender && subAction === "rmv";
-			const isRegistration = isGender && !isRemove;
-
-			const help =
-				"❌ | কমান্ডটি সঠিক নয়!\n\n" +
-				"নিজের রেজিস্ট্রেশন:\n" +
-				".pair boy\n" +
-				".pair girl\n\n" +
-				"ইউজার যোগ:\n" +
-				".pair boy @user1 @user2\n" +
-				".pair girl @user1 @user2\n\n" +
-				"ইউজার সরানো:\n" +
-				".pair boy rmv @user\n" +
-				".pair girl rmv @user\n\n" +
-				"Pair তৈরি করতে লিখুন: .pair";
-
-			const pairCollection = getPairCollection(threadsData);
-
-			if (!pairCollection) {
-				return message.reply(
-					"❌ | MongoDB PairData ব্যবহার করা যাচ্ছে না।\n" +
-					"বটের MongoDB সংযোগ ও ডেটাবেস সেটিংস পরীক্ষা করুন।"
-				);
-			}
-
-			let pairData = await pairCollection.findOne({ threadID });
-
-			if (!pairData) {
-				pairData = {
-					threadID,
-					boy: [],
-					girl: []
-				};
-			}
-
-			pairData.boy = [...new Set((pairData.boy || []).map(String))];
-			pairData.girl = [...new Set((pairData.girl || []).map(String))];
+			const senderID = String(event.senderID);
+			const threadID = String(event.threadID);
+			const input = (args || []).map(String);
+			const type = (input[0] || "").toLowerCase();
 
 			/*
-			 * REGISTER COMMAND SENDER
-			 * .pair boy
-			 * .pair girl
+			 * =================================
+			 * MONGODB REGISTRATION COMMANDS
+			 * =================================
 			 */
 
-			if (isRegistration && input.length === 1) {
-				const currentGender = pairData.boy.includes(senderID)
-					? "boy"
-					: pairData.girl.includes(senderID)
-						? "girl"
-						: null;
+			if (["boy", "girl"].includes(type)) {
+				const gender = type;
+				const action = (input[1] || "").toLowerCase();
+				const targets = await getTargetIDs(
+					input.slice(action === "rmv" ? 2 : 1),
+					event,
+					api
+				);
 
-				if (currentGender) {
+				const collection = await getPairCollection();
+
+				if (!collection) {
 					return message.reply(
-						"✅ | আপনার রেজিস্ট্রেশন ইতোমধ্যেই নিশ্চিত করা হয়েছে!\n\n" +
-						"আপনার পরিচয় আগে থেকেই Pair Data-তে সংরক্ষিত আছে। " +
-						"নতুন করে রেজিস্ট্রেশন করার প্রয়োজন নেই। 💌"
+						"❌ | MongoDB সংযোগ পাওয়া যায়নি।"
 					);
 				}
 
-				const gender = action;
-				const otherGender = gender === "boy" ? "girl" : "boy";
-
-				if (pairData[otherGender].includes(senderID)) {
-					return message.reply(
-						"✅ | আপনার রেজিস্ট্রেশন ইতোমধ্যেই নিশ্চিত করা হয়েছে!\n\n" +
-						"আপনি আগে থেকেই অন্য তালিকায় নিবন্ধিত আছেন। 💌"
-					);
-				}
-
-				await pairCollection.updateOne(
-					{ threadID },
+				await collection.updateOne(
+					{ _id: threadID },
 					{
 						$setOnInsert: {
-							threadID,
 							boy: [],
 							girl: []
-						},
-						$addToSet: {
-							[gender]: senderID
-						},
-						$set: {
-							updatedAt: new Date()
 						}
 					},
 					{ upsert: true }
 				);
 
-				return message.reply(
-					gender === "boy"
-						? "✅ | আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে!\n\n" +
-							"আপনাকে এই গ্রুপের ছেলেদের Pair তালিকায় যুক্ত করা হয়েছে। 💙\n\n" +
-							"এখন .pair লিখে Pair করুন।"
-						: "✅ | আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে!\n\n" +
-							"আপনাকে এই গ্রুপের মেয়েদের Pair তালিকায় যুক্ত করা হয়েছে। 💗\n\n" +
-							"এখন .pair লিখে Pair করুন।"
-				);
-			}
-
-			/*
-			 * ADD USERS
-			 * .pair boy @user1 @user2
-			 * .pair girl @user1 @user2
-			 */
-
-			if (isRegistration && input.length > 1) {
-				const targets = await resolveTargetIDs(
-					input.slice(1),
-					event,
-					api
-				);
-
-				if (!targets.length) {
-					return message.reply(
-						"❌ | কোনো ইউজারকে শনাক্ত করা যায়নি।\n\n" +
-						"সঠিকভাবে মেনশন করে আবার চেষ্টা করুন।\n\n" +
-						help
-					);
-				}
-
-				const added = [];
-				const already = [];
-
-				for (const id of targets) {
-					if (
-						pairData.boy.includes(id) ||
-						pairData.girl.includes(id)
-					) {
-						already.push(id);
-					} else {
-						added.push(id);
+				/*
+				 * REMOVE REGISTERED USERS
+				 * .pair boy rmv @user
+				 * .pair girl rmv @user
+				 */
+				if (action === "rmv") {
+					if (!targets.length) {
+						return message.reply(
+							"❌ | কাকে রিমুভ করবে তাকে মেনশন করো।\n\n" +
+							"উদাহরণ:\n" +
+							".pair boy rmv @user\n" +
+							".pair girl rmv @user"
+						);
 					}
-				}
 
-				if (added.length) {
-					await pairCollection.updateOne(
-						{ threadID },
+					const result = await collection.updateOne(
+						{ _id: threadID },
 						{
-							$setOnInsert: {
-								threadID,
-								boy: [],
-								girl: []
-							},
-							$addToSet: {
-								[action]: {
-									$each: added
-								}
-							},
-							$set: {
-								updatedAt: new Date()
+							$pull: {
+								[gender]: { $in: targets }
 							}
-						},
-						{ upsert: true }
+						}
+					);
+
+					/*
+					 * MongoDB $pull with an array of IDs.
+					 * Remove matching IDs from the selected list.
+					 */
+					await collection.updateOne(
+						{ _id: threadID },
+						{
+							$pull: {
+								[gender]: {
+									$in: targets
+								}
+							}
+						}
+					);
+
+					return message.reply(
+						`✅ | ${gender === "boy" ? "Boy" : "Girl"} তালিকা থেকে রিমুভ করার অনুরোধ সম্পন্ন।`
 					);
 				}
 
-				let reply = added.length
-					? `✅ | ${added.length} জন ইউজারকে ${action === "boy" ? "ছেলেদের" : "মেয়েদের"} Pair তালিকায় যুক্ত করা হয়েছে।`
-					: "ℹ️ | নতুন কোনো ইউজার যুক্ত করা হয়নি।";
+				/*
+				 * SELF REGISTRATION:
+				 * .pair boy
+				 * .pair girl
+				 *
+				 * TARGET REGISTRATION:
+				 * .pair boy @user1 @user2
+				 * .pair girl @user1 @user2
+				 */
+				const registeringIDs = targets.length
+					? targets
+					: [senderID];
 
-				if (already.length) {
-					reply +=
-						`\n\n⚠️ | ${already.length} জনের রেজিস্ট্রেশন ইতোমধ্যেই নিশ্চিত করা আছে।` +
-						"\nতাদের আবার যুক্ত করা হয়নি।";
+				let added = [];
+				let duplicate = [];
+
+				for (const id of [...new Set(registeringIDs.map(String))]) {
+					if (!id || id === "undefined") continue;
+
+					const existing = await collection.findOne(
+						{ _id: threadID },
+						{ projection: { boy: 1, girl: 1 } }
+					);
+
+					const boys = (existing?.boy || []).map(String);
+					const girls = (existing?.girl || []).map(String);
+
+					if (boys.includes(id) || girls.includes(id)) {
+						duplicate.push(id);
+						continue;
+					}
+
+					/*
+					 * Conditional update prevents the same user
+					 * from registering in both lists.
+					 */
+					const update = await collection.updateOne(
+						{
+							_id: threadID,
+							boy: { $ne: id },
+							girl: { $ne: id }
+						},
+						{
+							$addToSet: {
+								[gender]: id
+							}
+						}
+					);
+
+					if (update.modifiedCount > 0) {
+						added.push(id);
+					} else {
+						duplicate.push(id);
+					}
 				}
 
-				return message.reply(reply);
+				if (duplicate.length && !added.length) {
+					return message.reply(
+						"আপনার রেজিস্ট্রেশন ইতোমধ্যেই নিশ্চিত করা হয়েছে"
+					);
+				}
+
+				if (!added.length) {
+					return message.reply(
+						"❌ | রেজিস্ট্রেশন করা যায়নি। আবার চেষ্টা করো।"
+					);
+				}
+
+				return message.reply(
+					`✅ | ${added.length} জন ${gender === "boy" ? "Boy" : "Girl"} হিসেবে রেজিস্ট্রেশন সম্পন্ন হয়েছে।` +
+					(duplicate.length
+						? `\n⚠️ ${duplicate.length} জন আগে থেকেই রেজিস্টার্ড।`
+						: "")
+				);
 			}
 
 			/*
-			 * REMOVE USERS
-			 * .pair boy rmv @user
-			 * .pair girl rmv @user
+			 * =================================
+			 * PAIR HELP
+			 * =================================
 			 */
 
-			if (isRemove) {
-				const targetArgs = input.slice(2);
+			if (
+				type === "help" ||
+				type === "info"
+			) {
+				return message.reply(
+					"💌 PAIR COMMANDS\n\n" +
+					".pair boy — নিজের Boy রেজিস্ট্রেশন\n" +
+					".pair girl — নিজের Girl রেজিস্ট্রেশন\n" +
+					".pair boy @user — Boy হিসেবে রেজিস্ট্রেশন\n" +
+					".pair girl @user — Girl হিসেবে রেজিস্ট্রেশন\n" +
+					".pair boy rmv @user — Boy তালিকা থেকে রিমুভ\n" +
+					".pair girl rmv @user — Girl তালিকা থেকে রিমুভ\n" +
+					".pair — রেজিস্টার্ড হলে বিপরীত লিঙ্গের সাথে Pair\n" +
+					".pair random — আগের random pair\n" +
+					".pair @user — নিজের সাথে Pair\n" +
+					".pair @user1 @user2 — দুইজনকে Pair"
+				);
+			}
 
-				if (!targetArgs.length) {
+			/*
+			 * =================================
+			 * GET GROUP MEMBERS
+			 * =================================
+			 */
+
+			const members = await getMembers(api, threadID);
+
+			if (members.length < 2) {
+				return message.reply(
+					"❌ | Pair করার মতো যথেষ্ট member নেই।"
+				);
+			}
+
+			let id1;
+			let id2;
+
+			/*
+			 * =================================
+			 * REPLY + PAIR
+			 * =================================
+			 */
+
+			if (
+				event.messageReply &&
+				event.messageReply.senderID &&
+				!input.length
+			) {
+				id1 = senderID;
+				id2 = String(event.messageReply.senderID);
+
+				if (id1 === id2) {
 					return message.reply(
-						"❌ | যাকে সরাতে চান তাকে মেনশন করুন।\n\n" +
-						help
+						"😂 | নিজের সাথে pair করা যাবে না!"
 					);
 				}
+			}
 
-				const targets = await resolveTargetIDs(
-					targetArgs,
+			/*
+			 * =================================
+			 * TWO MENTIONS
+			 * =================================
+			 */
+
+			else if (
+				input.length >= 2 &&
+				type !== "random"
+			) {
+				const foundIDs = await getTargetIDs(
+					input,
 					event,
 					api
 				);
 
-				if (!targets.length) {
+				if (foundIDs.length < 2) {
 					return message.reply(
-						"❌ | ইউজার শনাক্ত করা যায়নি। সঠিকভাবে মেনশন করে আবার চেষ্টা করুন।"
+						"❌ | দুইজন user মেনশন করো।\n\n" +
+						"উদাহরণ:\n.pair @user1 @user2"
 					);
 				}
 
-				const removed = targets.filter(
-					id => pairData[action].includes(id)
-				);
+				id1 = foundIDs[0];
+				id2 = foundIDs[1];
 
-				if (!removed.length) {
+				if (id1 === id2) {
 					return message.reply(
-						`ℹ️ | মেনশন করা ইউজার ${action === "boy" ? "ছেলেদের" : "মেয়েদের"} তালিকায় নেই।`
+						"😂 | একই user-এর সাথে pair করা যাবে না!"
 					);
 				}
-
-				await pairCollection.updateOne(
-					{ threadID },
-					{
-						$pull: {
-							[action]: {
-								$in: removed
-							}
-						},
-						$set: {
-							updatedAt: new Date()
-						}
-					}
-				);
-
-				return message.reply(
-					`✅ | ${removed.length} জন ইউজারকে এই গ্রুপের ${action === "boy" ? "ছেলেদের" : "মেয়েদের"} Pair তালিকা থেকে সরানো হয়েছে।`
-				);
 			}
 
 			/*
-			 * INVALID COMMAND
-			 */
-
-			if (input.length) {
-				return message.reply(help);
-			}
-
-			/*
+			 * =================================
 			 * RANDOM PAIR
+			 * =================================
 			 */
 
-			const registeredGender = pairData.boy.includes(senderID)
-				? "boy"
-				: pairData.girl.includes(senderID)
-					? "girl"
-					: null;
+			else if (type === "random") {
+				const shuffled = shuffle([...members]);
 
-			if (!registeredGender) {
+				id1 = shuffled[0];
+				id2 = shuffled[1];
+			}
+
+			/*
+			 * =================================
+			 * ONE TARGET
+			 * =================================
+			 */
+
+			else if (input.length) {
+				const target = await resolveUserTarget(
+					input,
+					event,
+					api
+				);
+
+				if (!target || !target.id) {
+					return message.reply(
+						"❌ | User পাওয়া যায়নি।\n\n" +
+						"উদাহরণ: .pair @user"
+					);
+				}
+
+				id1 = senderID;
+				id2 = String(target.id);
+
+				if (id1 === id2) {
+					return message.reply(
+						"😂 | নিজের সাথে pair করা যাবে না!"
+					);
+				}
+			}
+
+			/*
+			 * =================================
+			 * JUST .PAIR
+			 *
+			 * Registered boy -> random girl
+			 * Registered girl -> random boy
+			 * Unregistered -> registration prompt
+			 * =================================
+			 */
+
+			else {
+				const collection = await getPairCollection();
+
+				if (!collection) {
+					return message.reply(
+						"❌ | MongoDB সংযোগ পাওয়া যায়নি।"
+					);
+				}
+
+				const data = await collection.findOne({
+					_id: threadID
+				});
+
+				const boys = (data?.boy || []).map(String);
+				const girls = (data?.girl || []).map(String);
+
+				if (boys.includes(senderID)) {
+					const available = girls.filter(
+						id => id !== senderID
+					);
+
+					if (!available.length) {
+						return message.reply(
+							"💌 | এখনো কোনো Girl রেজিস্টার করেনি।\n" +
+							"Girl-দের বলো: .pair girl"
+						);
+					}
+
+					id1 = senderID;
+					id2 = available[
+						Math.floor(Math.random() * available.length)
+					];
+				} else if (girls.includes(senderID)) {
+					const available = boys.filter(
+						id => id !== senderID
+					);
+
+					if (!available.length) {
+						return message.reply(
+							"💌 | এখনো কোনো Boy রেজিস্টার করেনি।\n" +
+							"Boy-দের বলো: .pair boy"
+						);
+					}
+
+					id1 = senderID;
+					id2 = available[
+						Math.floor(Math.random() * available.length)
+					];
+				} else {
+					return message.reply(
+						"💌 | Pair ব্যবহার করতে আগে রেজিস্ট্রেশন করো।\n\n" +
+						"👦 Boy হলে: .pair boy\n" +
+						"👧 Girl হলে: .pair girl"
+					);
+				}
+			}
+
+			/*
+			 * =================================
+			 * FINAL VALIDATION
+			 * =================================
+			 */
+
+			if (
+				!id1 ||
+				!id2 ||
+				String(id1) === String(id2)
+			) {
 				return message.reply(
-					"💌 | আপনার রেজিস্ট্রেশন এখনো সম্পন্ন হয়নি!\n\n" +
-					"Pair ব্যবহার করার আগে নিজের পরিচয় নিশ্চিত করুন।\n\n" +
-					"👦 ছেলে হলে লিখুন: .pair boy\n" +
-					"👧 মেয়ে হলে লিখুন: .pair girl\n\n" +
-					"রেজিস্ট্রেশন শেষে আবার .pair লিখুন। ❤️"
+					"❌ | Pair তৈরি করা যায়নি।"
 				);
 			}
 
-			const oppositeGender =
-				registeredGender === "boy" ? "girl" : "boy";
-
-			const candidates = pairData[oppositeGender].filter(
-				id => id !== senderID
-			);
-
-			if (!candidates.length) {
-				return message.reply(
-					`💌 | এই গ্রুপের ${oppositeGender === "girl" ? "মেয়েদের" : "ছেলেদের"} Pair তালিকায় এখনো কেউ নেই।\n\n` +
-					"আগে ইউজার যোগ করতে হবে।"
-				);
-			}
-
-			const id1 = senderID;
-			const id2 = candidates[
-				Math.floor(Math.random() * candidates.length)
-			];
+			/*
+			 * =================================
+			 * LOAD BOTH PROFILES
+			 * =================================
+			 */
 
 			const [profile1, profile2] = await Promise.all([
 				getProfile(id1, event, api),
@@ -340,7 +447,7 @@ module.exports = {
 
 			if (!profile1 || !profile2) {
 				return message.reply(
-					"❌ | প্রোফাইল লোড করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।"
+					"❌ | Profile load করা যায়নি।"
 				);
 			}
 
@@ -349,7 +456,7 @@ module.exports = {
 
 			if (!pic1 || !pic2) {
 				return message.reply(
-					"❌ | প্রোফাইল ছবি পাওয়া যায়নি।"
+					"❌ | Profile picture পাওয়া যায়নি।"
 				);
 			}
 
@@ -361,8 +468,9 @@ module.exports = {
 				profile2.username || id2
 			);
 
-			const percentage =
-				Math.floor(Math.random() * 51) + 50;
+			const percentage = Math.floor(
+				Math.random() * 51
+			) + 50;
 
 			const status = getStatus(percentage);
 
@@ -388,8 +496,8 @@ module.exports = {
 			console.error("[PAIR ERROR]", error);
 
 			return message.reply(
-				"❌ | Pair কমান্ড চালানো যায়নি।\n\n" +
-				(error.message || "অজানা সমস্যা")
+				"❌ | Pair failed.\n\n" +
+				(error.message || "Unknown error")
 			);
 		}
 	}
@@ -397,80 +505,58 @@ module.exports = {
 
 
 /* =================================
-   MONGODB PAIR DATA
+   GET PAIRDATA COLLECTION
 ================================= */
 
-function getPairCollection(threadsData) {
-	try {
-		const threadCollection =
-			threadsData && threadsData.collection;
+async function getPairCollection() {
+	const database = global.database;
 
-		const db = threadCollection && (
-			threadCollection.db ||
-			(threadCollection.s && threadCollection.s.db)
+	if (!database) {
+		throw new Error(
+			"global.database পাওয়া যায়নি।"
 		);
-
-		if (!db || typeof db.collection !== "function") {
-			return null;
-		}
-
-		return db.collection("PairData");
 	}
-	catch (error) {
-		console.error("[PAIR MONGODB ERROR]", error);
+
+	if (database.ready) {
+		await database.ready;
+	}
+
+	/*
+	 * Reuse the already connected MongoDB database
+	 * from the existing users collection.
+	 */
+	const usersCollection =
+		database.users &&
+		database.users.collection;
+
+	if (
+		!usersCollection ||
+		!usersCollection.db ||
+		typeof usersCollection.db.collection !== "function"
+	) {
 		return null;
 	}
+
+	return usersCollection.db.collection("PairData");
 }
 
 
 /* =================================
-   RESOLVE MENTIONED USER IDS
+   GET TARGET IDS
 ================================= */
 
-async function resolveTargetIDs(args, event, api) {
+async function getTargetIDs(args, event, api) {
 	const ids = [];
 
-	const mentions = event && event.mentions;
-
-	if (mentions && typeof mentions === "object") {
-		const entries = Array.isArray(mentions)
-			? mentions.map(item => [null, item])
-			: Object.entries(mentions);
-
-		for (const [key, item] of entries) {
-			const id = key && /^\d+$/.test(String(key))
-				? String(key)
-				: item && typeof item === "object"
-					? String(
-						item.userID ??
-						item.userId ??
-						item.id ??
-						item.pk ??
-						""
-					)
-					: /^\d+$/.test(String(item))
-						? String(item)
-						: "";
-
-			if (id && !ids.includes(id)) {
-				ids.push(id);
-			}
-		}
-	}
-
 	for (const arg of args || []) {
-		if (!arg || /^rmv$/i.test(arg)) continue;
+		if (!arg || String(arg).toLowerCase() === "rmv") {
+			continue;
+		}
 
 		try {
-			const cleanEvent = {
-				...event,
-				messageReply: null,
-				mentions: {}
-			};
-
 			const target = await resolveUserTarget(
 				[arg],
-				cleanEvent,
+				event,
 				api
 			);
 
@@ -481,17 +567,61 @@ async function resolveTargetIDs(args, event, api) {
 					ids.push(id);
 				}
 			}
-		}
-		catch (error) {
+		} catch (error) {
 			console.error(
 				"[PAIR TARGET ERROR]",
 				arg,
-				error
+				error.message
 			);
 		}
 	}
 
-	return ids;
+	/*
+	 * Mention IDs are used only when the command
+	 * arguments could not resolve enough targets.
+	 */
+	if (
+		ids.length < 2 &&
+		event.mentions
+	) {
+		for (const id of Object.keys(event.mentions)) {
+			const value = String(id);
+
+			if (!ids.includes(value)) {
+				ids.push(value);
+			}
+		}
+	}
+
+	return [...new Set(ids)];
+}
+
+
+/* =================================
+   GET GROUP MEMBERS
+================================= */
+
+function getMembers(api, threadID) {
+	return new Promise(resolve => {
+		api.getThreadInfo(
+			threadID,
+			(error, info) => {
+				if (
+					error ||
+					!info ||
+					!Array.isArray(info.participantIDs)
+				) {
+					return resolve([]);
+				}
+
+				const ids = info.participantIDs
+					.map(String)
+					.filter(Boolean);
+
+				resolve([...new Set(ids)]);
+			}
+		);
+	});
 }
 
 
@@ -513,8 +643,7 @@ async function getProfile(id, event, api) {
 			fakeEvent,
 			api
 		);
-	}
-	catch (error) {
+	} catch (error) {
 		console.error(
 			"[PROFILE ERROR]",
 			id,
@@ -567,92 +696,25 @@ async function createPairCard({
 	);
 
 	const textSVG = `
-		${makeText(
-			"Tanvir143 IgBot",
-			540,
-			80,
-			42,
-			"#FFFFFF",
-			true
-		)}
+		${makeText("Tanvir143 IgBot", 540, 80, 42, "#FFFFFF", true)}
 
-		${makeFittedText(
-			`@${username1}`,
-			285,
-			550,
-			335,
-			36,
-			20,
-			"#FFFFFF",
-			true
-		)}
+		${makeFittedText(`@${username1}`, 285, 550, 335, 36, 20, "#FFFFFF", true)}
 
-		${makeFittedText(
-			`@${username2}`,
-			795,
-			550,
-			335,
-			36,
-			20,
-			"#FFFFFF",
-			true
-		)}
+		${makeFittedText(`@${username2}`, 795, 550, 335, 36, 20, "#FFFFFF", true)}
 
-		${makeText(
-			`${percentage}%`,
-			540,
-			610,
-			72,
-			"url(#textGradient)",
-			true
-		)}
+		${makeText(`${percentage}%`, 540, 610, 72, "url(#textGradient)", true)}
 
-		<rect
-			x="390"
-			y="625"
-			width="${progressWidth}"
-			height="10"
-			rx="5"
-			fill="#FFFFFF"
-			fill-opacity="0.10"
-		/>
+		<rect x="390" y="625" width="${progressWidth}" height="10" rx="5" fill="#FFFFFF" fill-opacity="0.10"/>
 
-		<rect
-			x="390"
-			y="625"
-			width="${progressFill}"
-			height="10"
-			rx="5"
-			fill="url(#barGradient)"
-		/>
+		<rect x="390" y="625" width="${progressFill}" height="10" rx="5" fill="url(#barGradient)"/>
 
-		${makeFittedText(
-			status,
-			540,
-			690,
-			520,
-			58,
-			32,
-			"#FFFFFF",
-			true
-		)}
+		${makeFittedText(status, 540, 690, 520, 58, 32, "#FFFFFF", true)}
 	`;
 
 	const svg = `
-	<svg
-		width="${WIDTH}"
-		height="${HEIGHT}"
-		xmlns="http://www.w3.org/2000/svg"
-		xmlns:xlink="http://www.w3.org/1999/xlink"
-	>
+	<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 		<defs>
-			<linearGradient
-				id="bg"
-				x1="0"
-				y1="0"
-				x2="1"
-				y2="1"
-			>
+			<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
 				<stop offset="0%" stop-color="#080414"/>
 				<stop offset="45%" stop-color="#17072B"/>
 				<stop offset="100%" stop-color="#05030D"/>
@@ -668,49 +730,25 @@ async function createPairCard({
 				<stop offset="100%" stop-color="#6B5CFF" stop-opacity="0"/>
 			</radialGradient>
 
-			<linearGradient
-				id="ringGradient"
-				x1="0"
-				y1="0"
-				x2="1"
-				y2="1"
-			>
+			<linearGradient id="ringGradient" x1="0" y1="0" x2="1" y2="1">
 				<stop offset="0%" stop-color="#FF4DA6"/>
 				<stop offset="50%" stop-color="#B86CFF"/>
 				<stop offset="100%" stop-color="#5C7CFF"/>
 			</linearGradient>
 
-			<linearGradient
-				id="textGradient"
-				x1="0"
-				y1="0"
-				x2="1"
-				y2="0"
-			>
+			<linearGradient id="textGradient" x1="0" y1="0" x2="1" y2="0">
 				<stop offset="0%" stop-color="#FF67B7"/>
 				<stop offset="50%" stop-color="#FFFFFF"/>
 				<stop offset="100%" stop-color="#8B8CFF"/>
 			</linearGradient>
 
-			<linearGradient
-				id="barGradient"
-				x1="0"
-				y1="0"
-				x2="1"
-				y2="0"
-			>
+			<linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
 				<stop offset="0%" stop-color="#FF3DAE"/>
 				<stop offset="50%" stop-color="#B46CFF"/>
 				<stop offset="100%" stop-color="#637CFF"/>
 			</linearGradient>
 
-			<filter
-				id="glow"
-				x="-100%"
-				y="-100%"
-				width="300%"
-				height="300%"
-			>
+			<filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
 				<feGaussianBlur stdDeviation="12" result="blur"/>
 				<feMerge>
 					<feMergeNode in="blur"/>
@@ -718,13 +756,7 @@ async function createPairCard({
 				</feMerge>
 			</filter>
 
-			<filter
-				id="smallGlow"
-				x="-100%"
-				y="-100%"
-				width="300%"
-				height="300%"
-			>
+			<filter id="smallGlow" x="-100%" y="-100%" width="300%" height="300%">
 				<feGaussianBlur stdDeviation="4" result="blur"/>
 				<feMerge>
 					<feMergeNode in="blur"/>
@@ -747,18 +779,7 @@ async function createPairCard({
 		<circle cx="960" cy="120" r="320" fill="url(#blueGlow)"/>
 		<circle cx="540" cy="700" r="300" fill="url(#pinkGlow)" opacity="0.16"/>
 
-		<rect
-			x="35"
-			y="30"
-			width="1010"
-			height="655"
-			rx="42"
-			fill="#FFFFFF"
-			fill-opacity="0.045"
-			stroke="#FFFFFF"
-			stroke-opacity="0.10"
-			stroke-width="1.5"
-		/>
+		<rect x="35" y="30" width="1010" height="655" rx="42" fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5"/>
 
 		<g fill="#FFFFFF" opacity="0.65">
 			<circle cx="105" cy="175" r="2"/>
@@ -771,119 +792,26 @@ async function createPairCard({
 			<circle cx="565" cy="145" r="3"/>
 		</g>
 
-		<circle
-			cx="285"
-			cy="315"
-			r="154"
-			fill="none"
-			stroke="#FF3DAE"
-			stroke-width="18"
-			opacity="0.18"
-			filter="url(#glow)"
-		/>
+		<circle cx="285" cy="315" r="154" fill="none" stroke="#FF3DAE" stroke-width="18" opacity="0.18" filter="url(#glow)"/>
+		<circle cx="795" cy="315" r="154" fill="none" stroke="#687CFF" stroke-width="18" opacity="0.18" filter="url(#glow)"/>
 
-		<circle
-			cx="795"
-			cy="315"
-			r="154"
-			fill="none"
-			stroke="#687CFF"
-			stroke-width="18"
-			opacity="0.18"
-			filter="url(#glow)"
-		/>
-
-		<circle
-			cx="285"
-			cy="315"
-			r="150"
-			fill="none"
-			stroke="url(#ringGradient)"
-			stroke-width="6"
-		/>
-
-		<circle
-			cx="795"
-			cy="315"
-			r="150"
-			fill="none"
-			stroke="url(#ringGradient)"
-			stroke-width="6"
-		/>
+		<circle cx="285" cy="315" r="150" fill="none" stroke="url(#ringGradient)" stroke-width="6"/>
+		<circle cx="795" cy="315" r="150" fill="none" stroke="url(#ringGradient)" stroke-width="6"/>
 
 		<circle cx="285" cy="315" r="139" fill="#10091C"/>
 		<circle cx="795" cy="315" r="139" fill="#10091C"/>
 
-		<image
-			x="150"
-			y="180"
-			width="${avatarSize}"
-			height="${avatarSize}"
-			href="data:image/jpeg;base64,${avatar1.toString("base64")}"
-			xlink:href="data:image/jpeg;base64,${avatar1.toString("base64")}"
-			clip-path="url(#clip1)"
-			preserveAspectRatio="xMidYMid slice"
-		/>
+		<image x="150" y="180" width="${avatarSize}" height="${avatarSize}" href="data:image/jpeg;base64,${avatar1.toString("base64")}" xlink:href="data:image/jpeg;base64,${avatar1.toString("base64")}" clip-path="url(#clip1)" preserveAspectRatio="xMidYMid slice"/>
 
-		<image
-			x="660"
-			y="180"
-			width="${avatarSize}"
-			height="${avatarSize}"
-			href="data:image/jpeg;base64,${avatar2.toString("base64")}"
-			xlink:href="data:image/jpeg;base64,${avatar2.toString("base64")}"
-			clip-path="url(#clip2)"
-			preserveAspectRatio="xMidYMid slice"
-		/>
+		<image x="660" y="180" width="${avatarSize}" height="${avatarSize}" href="data:image/jpeg;base64,${avatar2.toString("base64")}" xlink:href="data:image/jpeg;base64,${avatar2.toString("base64")}" clip-path="url(#clip2)" preserveAspectRatio="xMidYMid slice"/>
 
-		<rect
-			x="105"
-			y="510"
-			width="360"
-			height="55"
-			rx="27.5"
-			fill="#FFFFFF"
-			fill-opacity="0.055"
-			stroke="#FF62B7"
-			stroke-opacity="0.22"
-		/>
+		<rect x="105" y="510" width="360" height="55" rx="27.5" fill="#FFFFFF" fill-opacity="0.055" stroke="#FF62B7" stroke-opacity="0.22"/>
+		<rect x="615" y="510" width="360" height="55" rx="27.5" fill="#FFFFFF" fill-opacity="0.055" stroke="#7181FF" stroke-opacity="0.22"/>
 
-		<rect
-			x="615"
-			y="510"
-			width="360"
-			height="55"
-			rx="27.5"
-			fill="#FFFFFF"
-			fill-opacity="0.055"
-			stroke="#7181FF"
-			stroke-opacity="0.22"
-		/>
-
-		<line
-			x1="445"
-			y1="315"
-			x2="635"
-			y2="315"
-			stroke="#FFFFFF"
-			stroke-opacity="0.18"
-			stroke-width="2"
-			stroke-dasharray="7 10"
-		/>
+		<line x1="445" y1="315" x2="635" y2="315" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2" stroke-dasharray="7 10"/>
 
 		<g transform="translate(540 315)" filter="url(#smallGlow)">
-			<path
-				d="
-					M 0 35
-					C -15 20 -55 -2 -55 -30
-					C -55 -50 -33 -62 -15 -52
-					C -7 -48 0 -40 0 -32
-					C 0 -40 7 -48 15 -52
-					C 33 -62 55 -50 55 -30
-					C 55 -2 15 20 0 35 Z
-				"
-				fill="url(#textGradient)"
-			/>
+			<path d="M 0 35 C -15 20 -55 -2 -55 -30 C -55 -50 -33 -62 -15 -52 C -7 -48 0 -40 0 -32 C 0 -40 7 -48 15 -52 C 33 -62 55 -50 55 -30 C 55 -2 15 20 0 35 Z" fill="url(#textGradient)"/>
 		</g>
 
 		${textSVG}
@@ -913,13 +841,9 @@ function makeFittedText(
 	let size = maxSize;
 
 	while (size > minSize) {
-		const width = getTextWidth(
-			text,
-			size,
-			bold
-		);
-
-		if (width <= maxWidth) break;
+		if (getTextWidth(text, size, bold) <= maxWidth) {
+			break;
+		}
 
 		size--;
 	}
@@ -958,13 +882,9 @@ function makeText(
 		width += position.xAdvance * scale;
 	}
 
-	let x;
-
-	if (align === "right") {
-		x = centerX - width;
-	} else {
-		x = centerX - width / 2;
-	}
+	let x = align === "right"
+		? centerX - width
+		: centerX - width / 2;
 
 	const paths = [];
 	let cursorX = x;
@@ -974,11 +894,9 @@ function makeText(
 		const position = run.positions[i];
 
 		if (glyph && glyph.path) {
-			const path = glyph.path.toSVG();
-
 			paths.push(`
 				<g transform="translate(${cursorX},${baselineY}) scale(${scale},${-scale})">
-					<path d="${path}" fill="${fill}"/>
+					<path d="${glyph.path.toSVG()}" fill="${fill}"/>
 				</g>
 			`);
 		}
@@ -1023,9 +941,7 @@ async function makeCircle(buffer, size) {
 			fit: "cover",
 			position: "centre"
 		})
-		.jpeg({
-			quality: 90
-		})
+		.jpeg({ quality: 90 })
 		.toBuffer();
 }
 
@@ -1059,7 +975,9 @@ function cleanUsername(value) {
 		.replace(/^@+/, "")
 		.replace(/\s+/g, "");
 
-	if (!username) return "unknown";
+	if (!username) {
+		return "unknown";
+	}
 
 	if (username.length > 24) {
 		username = username.slice(0, 21) + "...";
@@ -1101,4 +1019,4 @@ function shuffle(array) {
 	}
 
 	return array;
-}
+					}
