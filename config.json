@@ -41,7 +41,7 @@
     "notes": "Greet members added to a group thread."
   },
   "leave": {
-    "enable": false,
+    "enable": true,
     "message": "%1 He/She is no more this group.. ",
     "threadIDs": [],
     "notes": "Announce members who leave or are removed from a group thread."
@@ -69,7 +69,7 @@
   "autoMarkRead": false,
   "autoMarkDelivery": true,
   "autoReconnect": true,
-  "restartListenInterval": 3600000,
+  "restartListenInterval": 0,
   "logEvents": {
     "disableAll": false,
     "message": true,
