@@ -17,28 +17,36 @@
 /**
  * Client configuration.
  *
- * The server URL and shared API key ship with the package so bot owners never
- * set anything: login just works. Both can still be overridden per-login or
- * through the environment for local/self-hosted testing.
+ * This package is a remote-server client, not a local Instagram engine.
+ * Never silently send account cookies to a bundled third-party endpoint. A
+ * server URL and API key must be explicitly supplied by the operator.
  */
-const DEFAULT_SERVER_URL = process.env.CHAT_API_URL || "https://ica.neokex.xyz";
-
-// Shared key bundled with the client. The server must be configured with the
-// same value (API_KEY). It is not a secret in the security sense: it scopes the
-// client to this service, it is not an Instagram credential, and every user of
-// the published package already holds it. Rotate by updating the server
-// env var and shipping a new client version.
-const DEFAULT_API_KEY = process.env.CHAT_API_KEY || "neokex-ig-chat-api";
+const DEFAULT_SERVER_URL = process.env.CHAT_API_URL || "";
+const DEFAULT_API_KEY = process.env.CHAT_API_KEY || "";
 
 function resolve(options) {
         options = options || {};
+        const serverUrl = (options.serverUrl || options.url || process.env.CHAT_API_URL || DEFAULT_SERVER_URL).replace(/\/+$/, "");
+        const apiKey = options.apiKey || options.key || process.env.CHAT_API_KEY || DEFAULT_API_KEY;
+
+        if (!serverUrl) {
+                throw new Error("No ICA server URL configured. igbot-api is remote-server-only; it cannot run local-only without a local engine implementation.");
+        }
+        let parsed;
+        try { parsed = new URL(serverUrl); }
+        catch (_) { throw new Error("Invalid ICA server URL. Set CHAT_API_URL to a valid http(s) URL."); }
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+                throw new Error("Invalid ICA server URL protocol. Use http or https.");
+        }
+        if (!apiKey) {
+                throw new Error("No ICA API key configured. Set CHAT_API_KEY for a server you trust.");
+        }
+
         return {
-                serverUrl: (options.serverUrl || options.url || process.env.CHAT_API_URL || DEFAULT_SERVER_URL).replace(/\/+$/, ""),
-                apiKey: options.apiKey || options.key || process.env.CHAT_API_KEY || DEFAULT_API_KEY,
+                serverUrl,
+                apiKey,
                 timeoutMs: Number(options.timeoutMs || process.env.CHAT_API_TIMEOUT_MS || 30000),
                 maxRetries: Number(options.maxRetries || 2),
-                // Engine/realtime options forwarded verbatim (already filtered by
-                // index.js) so the server can apply them on session create.
                 engineOptions: options.engineOptions || {}
         };
 }
