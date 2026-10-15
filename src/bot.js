@@ -349,6 +349,28 @@ function normalizeEvent(event) {
   return normalized;
 }
 
+function isAuthenticationBlock(error) {
+  const parts = [];
+  const seen = new Set();
+  let current = error;
+
+  while (current && (typeof current === "object" || typeof current === "string")) {
+    if (typeof current === "string") {
+      parts.push(current);
+      break;
+    }
+    if (seen.has(current)) break;
+    seen.add(current);
+    if (current.message) parts.push(current.message);
+    if (current.error) parts.push(current.error);
+    if (current.code) parts.push(current.code);
+    current = current.cause;
+  }
+
+  const message = parts.join(" ").toLowerCase();
+  return /captcha|robot.?verification|checkpoint|challenge.?required|login.?required|not logged in|logged.?out|session.{0,20}(expired|invalid|no longer valid)|invalid.{0,20}cookie|cookie.{0,20}invalid|two.?factor|verification required|authentication required/.test(message);
+}
+
 function createBot(config) {
   const startedAt = Date.now();
   global.instabotStartedAt = startedAt;
@@ -586,17 +608,20 @@ function createBot(config) {
       error: message
     });
 
-    if (/not logged in|login_required|logged.?out/i.test(message)) {
+    if (isAuthenticationBlock(error)) {
       log.error(
-        "LISTEN",
-        "Session is no longer valid. Re-reading account.txt…",
+        "AUTH",
+        "Login/session needs manual verification. Bot is stopping to avoid repeated authentication attempts.",
         message
       );
 
-      scheduleRelogin();
-    } else {
-      log.error("LISTEN", "Listener error", message);
+      stop().catch(err => {
+        log.error("AUTH", "Failed to stop after authentication error", err);
+      });
+      return;
     }
+
+    log.error("LISTEN", "Listener error", message);
   }
 
   function startListening() {
@@ -680,20 +705,6 @@ function createBot(config) {
     log.info("LISTEN", "Listener restart scheduled");
   }
 
-  function scheduleRelogin() {
-    if (state.stopping || state.retireListener) return;
-
-    state.retireListener = setTimeout(() => {
-      state.retireListener = null;
-      log.info("LOGIN", "Reconnecting the realtime listener");
-      startListening();
-    }, 5000);
-
-    if (state.retireListener.unref) {
-      state.retireListener.unref();
-    }
-  }
-
   async function start() {
     log.master("BOOT", `${config.botName} starting…`);
 
@@ -724,11 +735,21 @@ function createBot(config) {
       } catch (error) {
         if (state.stopping) return;
 
-        attempt++;
-
         const message = String(
           (error && (error.error || error.message)) || error
         );
+
+        if (isAuthenticationBlock(error)) {
+          log.error(
+            "AUTH",
+            "Instagram requires verification or the saved session is invalid. Automatic login retries are disabled; verify the account in the official Instagram app, refresh account.txt only after verification, then restart the bot.",
+            message
+          );
+          await stop();
+          return;
+        }
+
+        attempt++;
 
         const delay = Math.min(60000, 5000 * attempt);
 
