@@ -41,7 +41,7 @@
     "notes": "Greet members added to a group thread."
   },
   "leave": {
-    "enable": true,
+    "enable": false,
     "message": "%1 He/She is no more this group.. ",
     "threadIDs": [],
     "notes": "Announce members who leave or are removed from a group thread."
