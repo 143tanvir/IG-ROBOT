@@ -349,28 +349,6 @@ function normalizeEvent(event) {
   return normalized;
 }
 
-function isAuthenticationBlock(error) {
-  const parts = [];
-  const seen = new Set();
-  let current = error;
-
-  while (current && (typeof current === "object" || typeof current === "string")) {
-    if (typeof current === "string") {
-      parts.push(current);
-      break;
-    }
-    if (seen.has(current)) break;
-    seen.add(current);
-    if (current.message) parts.push(current.message);
-    if (current.error) parts.push(current.error);
-    if (current.code) parts.push(current.code);
-    current = current.cause;
-  }
-
-  const message = parts.join(" ").toLowerCase();
-  return /captcha|robot.?verification|checkpoint|challenge.?required|login.?required|not logged in|logged.?out|session.{0,20}(expired|invalid|no longer valid)|invalid.{0,20}cookie|cookie.{0,20}invalid|two.?factor|verification required|authentication required/.test(message);
-}
-
 function createBot(config) {
   const startedAt = Date.now();
   global.instabotStartedAt = startedAt;
@@ -599,25 +577,39 @@ function createBot(config) {
       (error && (error.error || error.message)) || error
     );
 
-    if (/connection closed|closed by user/i.test(message)) {
+    if (/connection closed|closed by user/i.test(message)) return;
+
+    onlineStatus.writeLine({ event: "listener_error", error: message });
+
+    // Do not repeatedly reconnect when Instagram requires human verification
+    // or the saved session is invalid. Stop automation and require manual review.
+    if (/captcha|checkpoint|challenge|suspend|suspended|verification required|two.?factor/i.test(message)) {
+      state.listenerGeneration++;
+      try {
+        if (typeof state.stopListening === "function") state.stopListening();
+      } catch (_) {}
+      state.stopListening = null;
+      state.listening = false;
+      if (state.restartTimer) {
+        clearInterval(state.restartTimer);
+        state.restartTimer = null;
+      }
+      log.error("SAFETY", "Instagram verification/security checkpoint detected. Listener stopped; resolve it manually before restarting the bot.", message);
       return;
     }
 
-    onlineStatus.writeLine({
-      event: "listener_error",
-      error: message
-    });
-
-    if (isAuthenticationBlock(error)) {
-      log.error(
-        "AUTH",
-        "Login/session needs manual verification. Bot is stopping to avoid repeated authentication attempts.",
-        message
-      );
-
-      stop().catch(err => {
-        log.error("AUTH", "Failed to stop after authentication error", err);
-      });
+    if (/not logged in|login_required|logged.?out|session.?expired|account_inactive/i.test(message)) {
+      state.listenerGeneration++;
+      try {
+        if (typeof state.stopListening === "function") state.stopListening();
+      } catch (_) {}
+      state.stopListening = null;
+      state.listening = false;
+      if (state.restartTimer) {
+        clearInterval(state.restartTimer);
+        state.restartTimer = null;
+      }
+      log.error("SAFETY", "Instagram session is invalid/inactive. Automatic reconnect is disabled for this state; review account.txt and the account status manually.", message);
       return;
     }
 
@@ -705,6 +697,11 @@ function createBot(config) {
     log.info("LISTEN", "Listener restart scheduled");
   }
 
+  function isNonRetryableStartupError(error) {
+    const message = String((error && (error.error || error.message)) || error);
+    return /no ica server url|no ica api key|no api key|missing.*api key|invalid.*api key|unauthorized|captcha|checkpoint|challenge|suspend|suspended|verification required|two.?factor|login_required|not logged in|session.?expired/i.test(message);
+  }
+
   async function start() {
     log.master("BOOT", `${config.botName} starting…`);
 
@@ -739,19 +736,18 @@ function createBot(config) {
           (error && (error.error || error.message)) || error
         );
 
-        if (isAuthenticationBlock(error)) {
-          log.error(
-            "AUTH",
-            "Instagram requires verification or the saved session is invalid. Automatic login retries are disabled; verify the account in the official Instagram app, refresh account.txt only after verification, then restart the bot.",
-            message
-          );
-          await stop();
-          return;
+        if (isNonRetryableStartupError(error)) {
+          log.error("SAFETY", `Startup stopped without retrying: ${message}`);
+          throw error;
         }
 
         attempt++;
+        if (attempt > 5) {
+          log.error("BOOT", `Stopped after ${attempt - 1} transient connection attempts: ${message}`);
+          throw error;
+        }
 
-        const delay = Math.min(60000, 5000 * attempt);
+        const delay = Math.min(30000, 5000 * attempt);
 
         onlineStatus.writeLine({
           event: "boot_retry",
