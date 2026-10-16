@@ -166,13 +166,24 @@ function setReaction(api, emoji, messageID) {
             return resolve(false);
         }
 
-        api.setMessageReaction(emoji, messageID, err => {
+        let settled = false;
+
+        const finish = err => {
+            if (settled) return;
+            settled = true;
+
             if (err) {
                 log("Reaction error:", err.message || err);
             }
 
             resolve(!err);
-        });
+        };
+
+        try {
+            api.setMessageReaction(emoji, messageID, finish);
+        } catch (error) {
+            finish(error);
+        }
     });
 }
 
@@ -185,13 +196,41 @@ async function removeWaitMessage(api, info) {
 
     try {
         await new Promise(resolve => {
-            api.unsendMessage(messageID, () => resolve());
-            setTimeout(resolve, 3000);
+            let done = false;
+
+            const finish = () => {
+                if (done) return;
+                done = true;
+                resolve();
+            };
+
+            api.unsendMessage(messageID, finish);
+            setTimeout(finish, 3000);
         });
     } catch (_) {}
 }
 
-async function fetchMediaLink(url) {
+function detectMediaType(url) {
+    let pathname = "";
+
+    try {
+        pathname = new URL(url).pathname.toLowerCase();
+    } catch (_) {}
+
+    if (/\.(jpg|jpeg|png|webp|gif)$/.test(pathname)) {
+        return "image";
+    }
+
+    if (/\.(mp3|m4a|wav|ogg)$/.test(pathname)) {
+        return "audio";
+    }
+
+    return "video";
+}
+
+async function fetchMediaLink(url, report) {
+    let primaryError = "No usable media URL returned.";
+
     try {
         const apiURL =
             "https://ahm7xmakki.com/api/alldl?url=" +
@@ -214,9 +253,15 @@ async function fetchMediaLink(url) {
                     ? info.qualities.find(q => q?.url)?.url
                     : null) ||
                 info.imageUrl ||
-                info.audioUrl;
+                info.image_url ||
+                info.audioUrl ||
+                info.audio_url;
 
             if (mediaURL && isURL(mediaURL)) {
+                await report(
+                    "✅ Primary API: usable media URL পাওয়া গেছে।"
+                );
+
                 return {
                     url: mediaURL,
                     type: detectMediaType(mediaURL)
@@ -224,13 +269,29 @@ async function fetchMediaLink(url) {
             }
         }
 
-        log("Primary API returned no usable media URL.");
+        primaryError =
+            "Primary API response-এ usable media URL পাওয়া যায়নি।";
+
+        // Sensitive response fields are intentionally not exposed.
+        await report(
+            "⚠️ Primary API response পাওয়া গেছে, কিন্তু usable media URL নেই.\n" +
+            "Success: " + String(Boolean(data?.success)) + "\n" +
+            "Response keys: " +
+            Object.keys(data || {}).slice(0, 20).join(", ")
+        );
     } catch (error) {
-        log("[PRIMARY API]", error.message);
+        primaryError = String(
+            error.response?.data?.message ||
+            error.message ||
+            "Primary API request failed."
+        ).slice(0, 300);
+
+        await report(
+            "⚠️ Primary API error:\n" + primaryError
+        );
     }
 
-    // TikWM is retained for compatibility with the previous code.
-    // It may not support Instagram URLs.
+    // TikWM may not support Instagram links.
     try {
         const res = await axios.get(
             "https://tikwm.com/api/?url=" + encodeURIComponent(url),
@@ -240,6 +301,10 @@ async function fetchMediaLink(url) {
         const data = res.data?.data;
 
         if (data?.play && isURL(data.play)) {
+            await report(
+                "✅ Fallback API: video URL পাওয়া গেছে।"
+            );
+
             return {
                 url: data.play,
                 type: "video"
@@ -250,47 +315,42 @@ async function fetchMediaLink(url) {
             const imageURL = data.images[0];
 
             if (isURL(imageURL)) {
+                await report(
+                    "✅ Fallback API: image URL পাওয়া গেছে।"
+                );
+
                 return {
                     url: imageURL,
                     type: "image"
                 };
             }
         }
+
+        await report(
+            "⚠️ Fallback API-তেও usable media URL পাওয়া যায়নি।"
+        );
     } catch (error) {
-        log("[FALLBACK API]", error.message);
+        await report(
+            "⚠️ Fallback API error:\n" +
+            String(error.message || error).slice(0, 300)
+        );
     }
 
     if (
         /\.(mp4|m4v|webm|mov|jpg|jpeg|png|webp|gif|mp3|m4a|wav)(\?.*)?$/i
             .test(url)
     ) {
+        await report(
+            "ℹ️ Direct media URL হিসেবে চেষ্টা করা হচ্ছে।"
+        );
+
         return {
             url,
             type: detectMediaType(url)
         };
     }
 
-    throw new Error(
-        "Could not extract a direct media link. The platform may be unsupported."
-    );
-}
-
-function detectMediaType(url) {
-    let pathname = "";
-
-    try {
-        pathname = new URL(url).pathname.toLowerCase();
-    } catch {}
-
-    if (/\.(jpg|jpeg|png|webp|gif)$/.test(pathname)) {
-        return "image";
-    }
-
-    if (/\.(mp3|m4a|wav|ogg)$/.test(pathname)) {
-        return "audio";
-    }
-
-    return "video";
+    throw new Error(primaryError);
 }
 
 async function downloadFile(mediaData) {
@@ -339,7 +399,10 @@ async function downloadFile(mediaData) {
     let ext = "mp4";
     let format = "MP4";
 
-    if (mediaData.type === "image" || contentType.startsWith("image/")) {
+    if (
+        mediaData.type === "image" ||
+        contentType.startsWith("image/")
+    ) {
         if (contentType.includes("png")) {
             ext = "png";
         } else if (contentType.includes("webp")) {
@@ -352,7 +415,9 @@ async function downloadFile(mediaData) {
         ) {
             ext = "jpg";
         } else {
-            ext = path.extname(new URL(mediaData.url).pathname).slice(1) || "jpg";
+            ext =
+                path.extname(new URL(mediaData.url).pathname).slice(1) ||
+                "jpg";
         }
 
         format = ext.toUpperCase();
@@ -398,7 +463,7 @@ module.exports = {
     config: {
         name: "autodl",
         aliases: ["reel", "ig", "tt"],
-        version: "17.2",
+        version: "17.3",
         author: "Tanvir Ahmed (Tanvir143)",
         cooldown: 3,
         role: 0,
@@ -414,7 +479,7 @@ module.exports = {
         }
     },
 
-    onStart: async function ({ api, message, event }) {
+    onStart: async function ({ api, message }) {
         const msg =
             "•━━━━━━━━━━━━━━━━━━•\n" +
             "   🚀 Powered By Tanvir143\n" +
@@ -455,7 +520,22 @@ module.exports = {
 
         let file = null;
         let waitMsgInfo = null;
-        let mediaUrlObtained = false;
+
+        // Diagnostic details are sent as replies in the same group.
+        const report = async text => {
+            try {
+                await sendMessage(
+                    api,
+                    "🔎 AUTODL STATUS\n" +
+                    "━━━━━━━━━━━━━━━━━━\n" +
+                    text,
+                    event.threadID,
+                    event.messageID
+                );
+            } catch (error) {
+                log("Status reply failed:", error.message || error);
+            }
+        };
 
         try {
             await setReaction(api, "🧐", event.messageID);
@@ -464,7 +544,8 @@ module.exports = {
 
             waitMsgInfo = await sendMessage(
                 api,
-                "⏳ Downloading Started...\n🕛 Please wait 1-5 minutes.",
+                "⏳ Downloading Started...\n" +
+                "🕛 Please wait 1-5 minutes.",
                 event.threadID,
                 event.messageID
             ).catch(error => {
@@ -472,19 +553,29 @@ module.exports = {
                 return null;
             });
 
-            const mediaData = await fetchMediaLink(url);
+            const mediaData = await fetchMediaLink(url, report);
 
-            // API supplied a usable media URL.
-            mediaUrlObtained = true;
+            // A usable media URL has been obtained.
             await setReaction(api, "✅", event.messageID);
+
+            await report(
+                "📥 Media URL পাওয়া গেছে। Download শুরু হচ্ছে...\n" +
+                "Platform: " + platformName(platform) + "\n" +
+                "Type: " + mediaData.type
+            );
 
             const downloaded = await downloadFile(mediaData);
             file = downloaded.file;
 
+            await report(
+                "✅ Download সম্পন্ন হয়েছে। এখন group-এ পাঠানো হচ্ছে..."
+            );
+
             const caption =
-                "♻️ SENDING YOUR VIDEO...\n\n" +
+                "♻️ SENDING YOUR MEDIA...\n\n" +
                 "🎯 Platform: " + platformName(platform) + "\n" +
-                "📦 Format: " + downloaded.format;
+                "📦 Format: " + downloaded.format + "\n" +
+                "\n";
 
             await removeWaitMessage(api, waitMsgInfo);
             waitMsgInfo = null;
@@ -499,7 +590,7 @@ module.exports = {
                 event.messageID
             );
 
-            // Keep the success reaction on the original link message.
+            // Keep success reaction after a successful send.
             await setReaction(api, "✅", event.messageID);
 
             log("Media sent successfully:", platform);
@@ -520,7 +611,9 @@ module.exports = {
                     api,
                     "❌ Download Failed\n" +
                     "•━━━━━━━━━━━━━━━━━━•\n" +
-                    "Reason: " + reason,
+                    "🎯 Platform: " + platformName(platform) + "\n" +
+                    "⚠️ Reason: " + reason + "\n" +
+                    "•━━━━━━━━━━━━━━━━━━•",
                     event.threadID,
                     event.messageID
                 );
