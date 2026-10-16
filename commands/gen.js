@@ -257,7 +257,7 @@ module.exports = {
     name: "gen",
     aliases: ["create", "generate"],
     version: "2.4",
-    author: "Tanvir Ahmed (Tanvir143)",
+    author: "nkx",
     cooldown: 10,
     role: 0,
     shortDescription: {
