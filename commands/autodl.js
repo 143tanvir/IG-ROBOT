@@ -4,368 +4,535 @@
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
- * Bot: IG-ROBOT
+ * WhatsApp: +8801750079773
+ * Note: Project metadata only; original source credits and license notices are retained.
  */
 
 "use strict";
 
-const axios = require("axios");
-const fs = require("fs");
+const fs = require("fs-extra");
 const path = require("path");
-const os = require("os");
+const axios = require("axios");
 
-const API_URL = "https://ahm7xmakki.com/api/alldl";
-const MAX_SIZE = 50 * 1024 * 1024;
-const TIMEOUT = 60000;
-const TEMP_DIR = path.join(os.tmpdir(), "ig-robot-autodl");
+const CACHE_DIR = path.join(__dirname, "cache", "autodl");
+const TIMEOUT = 180000;
+const MAX_SIZE = 1024 * 1024 * 1024;
+const API_TIMEOUT = 20000;
 
-fs.mkdirSync(TEMP_DIR, { recursive: true });
+fs.ensureDirSync(CACHE_DIR);
 
 function log(...args) {
     console.log("[IG-ROBOT AUTODL]", ...args);
 }
 
-function sendMessage(api, body, threadID, replyTo) {
+function getURL(text) {
+    if (!text) return null;
+
+    const match = String(text).match(/https?:\/\/[^\s<>"']+/i);
+    if (!match) return null;
+
+    return match[0].replace(/[)\]}>.,!?;:'"]+$/g, "");
+}
+
+function isURL(url) {
+    try {
+        const u = new URL(url);
+        return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+        return false;
+    }
+}
+
+function detectPlatform(url) {
+    let host;
+
+    try {
+        host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    } catch {
+        return null;
+    }
+
+    if (
+        host === "instagram.com" ||
+        host.endsWith(".instagram.com") ||
+        host === "instagr.am"
+    ) return "instagram";
+
+    if (
+        host === "tiktok.com" ||
+        host.endsWith(".tiktok.com") ||
+        host === "vt.tiktok.com" ||
+        host === "vm.tiktok.com"
+    ) return "tiktok";
+
+    if (
+        host === "facebook.com" ||
+        host.endsWith(".facebook.com") ||
+        host === "fb.watch"
+    ) return "facebook";
+
+    if (
+        host === "youtube.com" ||
+        host.endsWith(".youtube.com") ||
+        host === "youtu.be"
+    ) return "youtube";
+
+    if (
+        host === "twitter.com" ||
+        host.endsWith(".twitter.com") ||
+        host === "x.com" ||
+        host.endsWith(".x.com")
+    ) return "twitter";
+
+    if (
+        host === "pinterest.com" ||
+        host.endsWith(".pinterest.com") ||
+        host === "pin.it"
+    ) return "pinterest";
+
+    if (
+        host === "threads.net" ||
+        host.endsWith(".threads.net") ||
+        host === "threads.com" ||
+        host.endsWith(".threads.com")
+    ) return "threads";
+
+    if (
+        host === "soundcloud.com" ||
+        host.endsWith(".soundcloud.com")
+    ) return "soundcloud";
+
+    if (
+        host === "spotify.com" ||
+        host.endsWith(".spotify.com")
+    ) return "spotify";
+
+    if (
+        host === "mediafire.com" ||
+        host.endsWith(".mediafire.com")
+    ) return "mediafire";
+
+    if (
+        host === "capcut.com" ||
+        host.endsWith(".capcut.com")
+    ) return "capcut";
+
+    if (host === "drive.google.com") return "gdrive";
+
+    return "universal";
+}
+
+function platformName(platform) {
+    const names = {
+        instagram: "Instagram",
+        tiktok: "TikTok",
+        facebook: "Facebook",
+        youtube: "YouTube",
+        twitter: "Twitter / X",
+        pinterest: "Pinterest",
+        threads: "Threads",
+        soundcloud: "SoundCloud",
+        spotify: "Spotify",
+        mediafire: "MediaFire",
+        capcut: "CapCut",
+        gdrive: "Google Drive",
+        universal: "Web Media"
+    };
+
+    return names[platform] || "Unknown";
+}
+
+function sendMessage(api, data, threadID, replyToMessageID) {
     return new Promise((resolve, reject) => {
         api.sendMessage(
-            {
-                body,
-                ...(replyTo ? { replyToMessageID: replyTo } : {})
-            },
+            data,
             threadID,
-            (err, info) => err ? reject(err) : resolve(info)
+            (err, info) => {
+                if (err) return reject(err);
+                resolve(info || null);
+            },
+            replyToMessageID
         );
     });
 }
 
 function setReaction(api, emoji, messageID) {
     return new Promise(resolve => {
-        if (!messageID || typeof api.setMessageReaction !== "function") {
+        if (
+            !messageID ||
+            typeof api.setMessageReaction !== "function"
+        ) {
             log("Reaction API unavailable.");
             return resolve(false);
         }
 
         api.setMessageReaction(emoji, messageID, err => {
-            if (err) log("Reaction failed:", err.message || err);
+            if (err) {
+                log("Reaction error:", err.message || err);
+            }
+
             resolve(!err);
         });
     });
 }
 
-function extractUrls(text) {
-    return (text.match(/https?:\/\/[^\s<>"']+/gi) || [])
-        .map(url => url.replace(/[),.!?]+$/g, ""))
-        .filter(url => {
-            try {
-                const host = new URL(url).hostname.toLowerCase();
+async function removeWaitMessage(api, info) {
+    const messageID = info?.messageID || info?.messageId;
 
-                return host === "instagram.com" ||
-                    host.endsWith(".instagram.com") ||
-                    host === "instagr.am" ||
-                    host.endsWith(".instagr.am");
-            } catch {
-                return false;
-            }
-        });
-}
-
-function findMediaUrls(data) {
-    const keys = [
-        "videoUrl", "video_url", "downloadUrl", "download_url",
-        "play", "playUrl", "play_url", "mediaUrl", "media_url",
-        "hd", "hdplay", "wmplay", "url", "src"
-    ];
-
-    const results = [];
-    const seen = new Set();
-
-    function walk(value, depth = 0) {
-        if (!value || depth > 7) return;
-
-        if (Array.isArray(value)) {
-            for (const item of value) walk(item, depth + 1);
-            return;
-        }
-
-        if (typeof value !== "object") return;
-
-        for (const [key, item] of Object.entries(value)) {
-            if (
-                keys.includes(key) &&
-                typeof item === "string" &&
-                /^https?:\/\//i.test(item) &&
-                !seen.has(item)
-            ) {
-                seen.add(item);
-                results.push({ key, url: item });
-            } else if (item && typeof item === "object") {
-                walk(item, depth + 1);
-            }
-        }
+    if (!messageID || typeof api.unsendMessage !== "function") {
+        return;
     }
 
-    walk(data);
-    return results;
+    try {
+        await new Promise(resolve => {
+            api.unsendMessage(messageID, () => resolve());
+            setTimeout(resolve, 3000);
+        });
+    } catch (_) {}
 }
 
 async function fetchMediaLink(url) {
-    const response = await axios.get(API_URL, {
-        params: { url },
-        timeout: TIMEOUT,
-        headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; IG-ROBOT/1.0)"
-        }
-    });
-
-    const data = response.data;
-    const info = data?.mediaInfo || data?.data || data;
-    const media = findMediaUrls(info);
-
-    const selected = media.find(item =>
-        [
-            "videoUrl", "video_url", "downloadUrl", "download_url",
-            "play", "playUrl", "play_url", "mediaUrl", "media_url",
-            "hd", "hdplay", "wmplay", "url", "src"
-        ].includes(item.key)
-    );
-
-    if (!selected) {
-        throw new Error(
-            data?.message ||
-            data?.error ||
-            "Could not extract a direct media link from the API response."
-        );
-    }
-
-    return selected.url;
-}
-
-function getExtension(contentType, url) {
-    const type = (contentType || "").toLowerCase();
-
-    if (type.includes("video/mp4")) return ".mp4";
-    if (type.includes("video/webm")) return ".webm";
-    if (type.includes("image/jpeg")) return ".jpg";
-    if (type.includes("image/png")) return ".png";
-
     try {
-        const ext = path.extname(new URL(url).pathname).toLowerCase();
+        const apiURL =
+            "https://ahm7xmakki.com/api/alldl?url=" +
+            encodeURIComponent(url);
 
-        if ([".mp4", ".webm", ".jpg", ".png"].includes(ext)) {
-            return ext;
-        }
-    } catch {}
-
-    return ".mp4";
-}
-
-async function downloadMedia(url) {
-    const response = await axios.get(url, {
-        responseType: "stream",
-        timeout: TIMEOUT,
-        maxRedirects: 5,
-        headers: {
-            "User-Agent": "Mozilla/5.0"
-        },
-        validateStatus: status => status >= 200 && status < 300
-    });
-
-    const contentType = response.headers["content-type"] || "";
-
-    if (
-        contentType.includes("text/html") ||
-        contentType.includes("application/json")
-    ) {
-        response.data.destroy();
-        throw new Error("The media URL returned a webpage, not a media file.");
-    }
-
-    const declaredSize = Number(response.headers["content-length"] || 0);
-
-    if (declaredSize > MAX_SIZE) {
-        response.data.destroy();
-        throw new Error("Media exceeds the 50 MB limit.");
-    }
-
-    const filePath = path.join(
-        TEMP_DIR,
-        `media_${Date.now()}_${Math.random().toString(36).slice(2)}` +
-        getExtension(contentType, url)
-    );
-
-    let received = 0;
-
-    try {
-        await new Promise((resolve, reject) => {
-            const output = fs.createWriteStream(filePath);
-
-            response.data.on("data", chunk => {
-                received += chunk.length;
-
-                if (received > MAX_SIZE) {
-                    response.data.destroy(
-                        new Error("Media exceeds the 50 MB limit.")
-                    );
-                }
-            });
-
-            response.data.on("error", error => {
-                output.destroy();
-                reject(error);
-            });
-
-            output.on("error", reject);
-            output.on("finish", resolve);
-            response.data.pipe(output);
+        const res = await axios.get(apiURL, {
+            timeout: API_TIMEOUT
         });
 
-        if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-            throw new Error("Downloaded media file is empty.");
+        const data = res.data;
+        const info = data?.mediaInfo || data?.data;
+
+        if (data?.success && info) {
+            const mediaURL =
+                info.videoUrl ||
+                info.video_url ||
+                info.downloadUrl ||
+                info.download_url ||
+                (Array.isArray(info.qualities)
+                    ? info.qualities.find(q => q?.url)?.url
+                    : null) ||
+                info.imageUrl ||
+                info.audioUrl;
+
+            if (mediaURL && isURL(mediaURL)) {
+                return {
+                    url: mediaURL,
+                    type: detectMediaType(mediaURL)
+                };
+            }
         }
 
-        return filePath;
+        log("Primary API returned no usable media URL.");
     } catch (error) {
-        try {
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        } catch {}
-
-        throw error;
+        log("[PRIMARY API]", error.message);
     }
-}
 
-function sendAttachment(api, filePath, threadID, messageID) {
-    return new Promise((resolve, reject) => {
-        const stream = fs.createReadStream(filePath);
-
-        api.sendMessage(
-            {
-                body: "",
-                attachment: stream,
-                replyToMessageID: messageID
-            },
-            threadID,
-            (err, info) => err ? reject(err) : resolve(info)
-        );
-    });
-}
-
-function cleanup(filePath) {
+    // TikWM is retained for compatibility with the previous code.
+    // It may not support Instagram URLs.
     try {
-        if (filePath && fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        const res = await axios.get(
+            "https://tikwm.com/api/?url=" + encodeURIComponent(url),
+            { timeout: 15000 }
+        );
+
+        const data = res.data?.data;
+
+        if (data?.play && isURL(data.play)) {
+            return {
+                url: data.play,
+                type: "video"
+            };
+        }
+
+        if (Array.isArray(data?.images) && data.images.length) {
+            const imageURL = data.images[0];
+
+            if (isURL(imageURL)) {
+                return {
+                    url: imageURL,
+                    type: "image"
+                };
+            }
         }
     } catch (error) {
-        log("Cleanup failed:", error.message);
+        log("[FALLBACK API]", error.message);
     }
+
+    if (
+        /\.(mp4|m4v|webm|mov|jpg|jpeg|png|webp|gif|mp3|m4a|wav)(\?.*)?$/i
+            .test(url)
+    ) {
+        return {
+            url,
+            type: detectMediaType(url)
+        };
+    }
+
+    throw new Error(
+        "Could not extract a direct media link. The platform may be unsupported."
+    );
 }
 
-function removeStatus(api, info) {
-    if (info?.messageID && typeof api.unsendMessage === "function") {
-        api.unsendMessage(info.messageID, () => {});
+function detectMediaType(url) {
+    let pathname = "";
+
+    try {
+        pathname = new URL(url).pathname.toLowerCase();
+    } catch {}
+
+    if (/\.(jpg|jpeg|png|webp|gif)$/.test(pathname)) {
+        return "image";
     }
+
+    if (/\.(mp3|m4a|wav|ogg)$/.test(pathname)) {
+        return "audio";
+    }
+
+    return "video";
+}
+
+async function downloadFile(mediaData) {
+    if (!isURL(mediaData.url)) {
+        throw new Error("Invalid media URL.");
+    }
+
+    const response = await axios.get(mediaData.url, {
+        responseType: "arraybuffer",
+        timeout: TIMEOUT,
+        maxContentLength: MAX_SIZE,
+        maxBodyLength: MAX_SIZE,
+        maxRedirects: 10,
+        headers: {
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/120.0.0.0 Safari/537.36",
+            Accept: "*/*"
+        }
+    });
+
+    const contentType = String(
+        response.headers["content-type"] || ""
+    ).toLowerCase();
+
+    if (
+        contentType.startsWith("text/html") ||
+        contentType.includes("application/json")
+    ) {
+        throw new Error(
+            "The downloader returned a webpage instead of a media file."
+        );
+    }
+
+    const buffer = Buffer.from(response.data);
+
+    if (!buffer.length) {
+        throw new Error("The downloaded file is empty.");
+    }
+
+    if (buffer.length > MAX_SIZE) {
+        throw new Error("The media exceeds the 1 GB file limit.");
+    }
+
+    let ext = "mp4";
+    let format = "MP4";
+
+    if (mediaData.type === "image" || contentType.startsWith("image/")) {
+        if (contentType.includes("png")) {
+            ext = "png";
+        } else if (contentType.includes("webp")) {
+            ext = "webp";
+        } else if (contentType.includes("gif")) {
+            ext = "gif";
+        } else if (
+            contentType.includes("jpeg") ||
+            contentType.includes("jpg")
+        ) {
+            ext = "jpg";
+        } else {
+            ext = path.extname(new URL(mediaData.url).pathname).slice(1) || "jpg";
+        }
+
+        format = ext.toUpperCase();
+    } else if (
+        mediaData.type === "audio" ||
+        contentType.startsWith("audio/")
+    ) {
+        if (contentType.includes("wav")) {
+            ext = "wav";
+        } else if (contentType.includes("ogg")) {
+            ext = "ogg";
+        } else if (contentType.includes("mp4")) {
+            ext = "m4a";
+        } else {
+            ext = "mp3";
+        }
+
+        format = ext.toUpperCase();
+    } else {
+        const pathname = new URL(mediaData.url).pathname;
+        const originalExt = path.extname(pathname).toLowerCase();
+
+        if ([".webm", ".mov", ".m4v"].includes(originalExt)) {
+            ext = originalExt.slice(1);
+        }
+
+        format = ext.toUpperCase();
+    }
+
+    const file = path.join(
+        CACHE_DIR,
+        `tanvir143_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 7)}.${ext}`
+    );
+
+    await fs.writeFile(file, buffer);
+
+    return { file, format };
 }
 
 module.exports = {
     config: {
         name: "autodl",
-        aliases: ["reel", "ig"],
-        version: "2.2.0",
+        aliases: ["reel", "ig", "tt"],
+        version: "17.2",
         author: "Tanvir Ahmed (Tanvir143)",
-        countDown: 5,
+        cooldown: 3,
         role: 0,
-        category: "Media",
+        category: "Users Cmd",
         shortDescription: {
-            en: "Automatically download Instagram video links."
+            en: "Automatic media downloader"
         },
         longDescription: {
-            en: "Detects Instagram links and sends downloaded media to the chat."
+            en: "Detects media links and downloads supported images, videos and audio."
         },
         guide: {
-            en: "Send a public Instagram Reel or video link in the group."
+            en: "{pn} — send a supported media link in chat."
         }
     },
 
-    onStart: async function ({ api, event, args }) {
-        const url = extractUrls((args || []).join(" "))[0];
+    onStart: async function ({ api, message, event }) {
+        const msg =
+            "•━━━━━━━━━━━━━━━━━━•\n" +
+            "   🚀 Powered By Tanvir143\n" +
+            "•━━━━━━━━━━━━━━━━━━•\n\n" +
+            "✅ Supported platforms\n\n" +
+            "1. 🎵 TikTok\n" +
+            "2. 📸 Instagram\n" +
+            "3. 📘 Facebook\n" +
+            "4. ▶️ YouTube\n" +
+            "5. 🐦 Twitter / X\n" +
+            "6. 📌 Pinterest\n" +
+            "7. 🧵 Threads\n" +
+            "8. 🎧 SoundCloud\n" +
+            "9. 🎵 Spotify\n" +
+            "10. 📁 MediaFire\n" +
+            "11. ✂️ CapCut\n" +
+            "12. ☁️ Google Drive\n\n" +
+            "━━━━━━━━━━━━━━━━━━\n\n" +
+            "📌 How to use\n\n" +
+            "Send a supported media URL in the chat.\n" +
+            "The bot will try to detect and download it automatically.\n\n" +
+            "•━━━━━━━━━━━━━━━━━━•";
 
-        if (!url) {
-            return sendMessage(
-                api,
-                "Please provide a valid Instagram video link.",
-                event.threadID,
-                event.messageID
-            );
-        }
-
-        return this.onChat({
-            api,
-            event: { ...event, body: url }
-        });
+        return message.reply(msg);
     },
 
     onChat: async function ({ api, event }) {
-        const url = extractUrls(event.body || "")[0];
+        if (!event || event.type === "message_reaction") return;
 
-        if (!url) return;
+        const text = String(event.body || "").trim();
+        if (!text) return;
 
-        const messageID = event.messageID;
-        const threadID = event.threadID;
+        const url = getURL(text);
+        if (!url || !isURL(url)) return;
 
-        let filePath = null;
-        let statusMessage = null;
+        const platform = detectPlatform(url);
+        if (!platform) return;
+
+        let file = null;
+        let waitMsgInfo = null;
         let mediaUrlObtained = false;
 
         try {
-            await setReaction(api, "🧐", messageID);
+            await setReaction(api, "🧐", event.messageID);
 
-            log("Instagram link detected.");
+            log("Link detected:", platform);
 
-            try {
-                statusMessage = await sendMessage(
-                    api,
-                    "♻️",
-                    threadID,
-                    messageID
-                );
-            } catch (error) {
+            waitMsgInfo = await sendMessage(
+                api,
+                "⏳ Downloading Started...\n🕛 Please wait 1-5 minutes.",
+                event.threadID,
+                event.messageID
+            ).catch(error => {
                 log("Status message failed:", error.message);
-            }
+                return null;
+            });
 
-            const mediaUrl = await fetchMediaLink(url);
+            const mediaData = await fetchMediaLink(url);
+
+            // API supplied a usable media URL.
             mediaUrlObtained = true;
+            await setReaction(api, "✅", event.messageID);
 
-            // A usable media URL was received.
-            await setReaction(api, "✅", messageID);
+            const downloaded = await downloadFile(mediaData);
+            file = downloaded.file;
 
-            filePath = await downloadMedia(mediaUrl);
+            const caption =
+                "♻️ SENDING YOUR VIDEO...\n\n" +
+                "🎯 Platform: " + platformName(platform) + "\n" +
+                "📦 Format: " + downloaded.format;
 
-            // If sending fails, the catch block changes the reaction to ❌.
-            await sendAttachment(api, filePath, threadID, messageID);
+            await removeWaitMessage(api, waitMsgInfo);
+            waitMsgInfo = null;
 
-            // Keep the success reaction after successful send.
-            await setReaction(api, "✅", messageID);
+            await sendMessage(
+                api,
+                {
+                    body: caption,
+                    attachment: fs.createReadStream(file)
+                },
+                event.threadID,
+                event.messageID
+            );
 
-            log("Media sent successfully.");
+            // Keep the success reaction on the original link message.
+            await setReaction(api, "✅", event.messageID);
+
+            log("Media sent successfully:", platform);
         } catch (error) {
-            log("Download/send failed:", error.message || error);
+            const reason = String(
+                error?.message || error || "Unknown error"
+            ).slice(0, 500);
 
-            // Any error changes the original link reaction to ❌.
-            await setReaction(api, "❌", messageID);
+            log("Download/send failed:", reason);
+
+            // Any download or send error changes the reaction to ❌.
+            await setReaction(api, "❌", event.messageID);
+
+            await removeWaitMessage(api, waitMsgInfo);
 
             try {
                 await sendMessage(
                     api,
-                    "❌ Download Failed\nReason: " +
-                        (error.message || "An unexpected error occurred."),
-                    threadID,
-                    messageID
+                    "❌ Download Failed\n" +
+                    "•━━━━━━━━━━━━━━━━━━•\n" +
+                    "Reason: " + reason,
+                    event.threadID,
+                    event.messageID
                 );
             } catch (sendError) {
-                log("Error message failed:", sendError.message);
+                log("Error reply failed:", sendError.message);
             }
         } finally {
-            cleanup(filePath);
-            removeStatus(api, statusMessage);
+            if (file) {
+                setTimeout(() => {
+                    fs.remove(file).catch(() => {});
+                }, 10000);
+            }
         }
     }
 };
