@@ -87,7 +87,9 @@ module.exports = {
                 { timeout: 30000 }
             );
 
-            const videoURL = data?.result?.video;
+            const videoURL = typeof data?.result === "string"
+    ? data.result
+    : data?.result?.video;
 
             if (!videoURL || !/^https?:\/\//i.test(videoURL)) {
                 throw new Error("Video URL unavailable");
