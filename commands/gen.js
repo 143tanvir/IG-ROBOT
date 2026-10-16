@@ -285,8 +285,8 @@ module.exports = {
     if (!args.length) {
       return message.reply(
         "IG-ROBOT GEN COMMAND\n\n" +
-        ".gen +models - Show models\n" +
-        ".gen +nb2 a cat - Square image (default)\n" +
+        "1. nb2 \n 2. nb2edit \n 3. gpt2 \n 4. gpt2edit \n 5. flux2 \n 6. flux2edit \n 7. flux2flex \n 8. flux2pro \n 9. flux2proedit \n 10. fluxkrea \n 11. fluxkreaedit \n 12. kontext \n 13. ideogram \n 14. seedream4 \n 15. seedream4edit \n 16. seedream45 \n 17. seedream45edit \n 18. seedream5 \n 19. seedream5edit \n 20. qwen2 \n 21. qwen2pro \n 22. gemini25 \n 23. gemini25edit \n 24. flare \n 25. flareedit \n 26. sunburst \n 27. sunbursted \n 28. gpt25 \n" +
+        ".gen +nb2 a cat\n" +
         ".gen +nb2 a cat +ar 16:9 - Landscape\n" +
         ".gen +nb2 a cat +ar 9:16 - Portrait\n" +
         "Reply to a photo: .gen +nb2 make it watercolor\n" +
