@@ -1,4 +1,11 @@
 
+/**
+ * File Name: autodl.js
+ * ICA: igbot-api
+ * Author: Tanvir Ahmed (Tanvir143)
+ * GitHub: www.github.com/143tanvir
+ */
+
 "use strict";
 
 const axios = require("axios");
@@ -7,11 +14,13 @@ const path = require("path");
 
 const tanvir143 = {
     api: "https://noobs-api.top/dipto/alldl?url=",
-    emoji: { loading: "🧐", success: "✅", error: "❌" },
+    emoji: {
+        loading: "🧐",
+        success: "✅",
+        error: "❌"
+    },
     cache: path.join(__dirname, "cache", "igvideo")
 };
-
-fs.ensureDirSync(tanvir143.cache);
 
 module.exports = {
     config: {
@@ -22,35 +31,56 @@ module.exports = {
         cooldown: 3,
         role: 0,
         category: "Users Cmd",
-        shortDescription: { en: "Instagram video downloader" },
-        guide: { en: "Send an Instagram Reel/video link." }
+        shortDescription: {
+            en: "Instagram video auto downloader"
+        },
+        guide: {
+            en: "Send an Instagram Reel/video link."
+        }
     },
 
+    onStart: async function () {},
+
     onChat: async function ({ api, event }) {
+        if (event.type === "message_reaction") return;
+
         const match = String(event.body || "").match(
             /https?:\/\/(?:www\.)?instagram\.com\/(?:reel|reels|p|tv)\/[^\s]+/i
         );
-        if (!match || event.type === "message_reaction") return;
+
+        if (!match) return;
 
         const url = match[0].replace(/[)\]}>.,!?;:'"]+$/g, "");
-        const { emoji, cache } = tanvir143;
         let file;
 
-        const react = e => new Promise(resolve => {
-            if (!event.messageID || !api.setMessageReaction) return resolve();
+        const react = emoji => new Promise(resolve => {
+            if (!event.messageID || !api.setMessageReaction) {
+                return resolve();
+            }
+
             try {
-                api.setMessageReaction(e, event.messageID, () => resolve());
-            } catch (_) { resolve(); }
+                api.setMessageReaction(
+                    emoji,
+                    event.messageID,
+                    () => resolve()
+                );
+            } catch (_) {
+                resolve();
+            }
         });
 
         const send = data => new Promise((resolve, reject) => {
-            api.sendMessage(data, event.threadID, (err, info) =>
-                err ? reject(err) : resolve(info), event.messageID
+            api.sendMessage(
+                data,
+                event.threadID,
+                (err, info) => err ? reject(err) : resolve(info),
+                event.messageID
             );
         });
 
         try {
-            await react(emoji.loading);
+            await react(tanvir143.emoji.loading);
+            await fs.ensureDir(tanvir143.cache);
 
             const { data } = await axios.get(
                 tanvir143.api + encodeURIComponent(url),
@@ -58,11 +88,10 @@ module.exports = {
             );
 
             const videoURL = data?.result?.video;
-            if (!videoURL || !/^https?:\/\//i.test(videoURL)) {
-                throw new Error("Video URL পাওয়া যায়নি");
-            }
 
-            await react(emoji.success);
+            if (!videoURL || !/^https?:\/\//i.test(videoURL)) {
+                throw new Error("Video URL unavailable");
+            }
 
             const response = await axios.get(videoURL, {
                 responseType: "arraybuffer",
@@ -70,27 +99,40 @@ module.exports = {
                 maxContentLength: 1024 * 1024 * 1024
             });
 
-            const type = String(response.headers["content-type"] || "");
-            if (type.includes("text/html") || !response.data?.length) {
+            const contentType = String(
+                response.headers["content-type"] || ""
+            );
+
+            if (
+                !response.data?.length ||
+                contentType.includes("text/html")
+            ) {
                 throw new Error("Invalid video response");
             }
 
-            file = path.join(cache, `ig_${Date.now()}.mp4`);
+            file = path.join(
+                tanvir143.cache,
+                `ig_${Date.now()}.mp4`
+            );
+
             await fs.writeFile(file, response.data);
 
             await send({
-                body: "📦 SENDING YOUR VIDEO",
+                body: "📦 SENDING YOUR VIDEO...",
                 attachment: fs.createReadStream(file)
             });
 
-            await react(emoji.success);
+            await react(tanvir143.emoji.success);
         } catch (_) {
-            await react(emoji.error);
+            await react(tanvir143.emoji.error);
+
             try {
-                await send(emoji.error + " Video download failed.");
+                await send("❌ Video download failed.");
             } catch (_) {}
         } finally {
-            if (file) setTimeout(() => fs.remove(file).catch(() => {}), 10000);
+            if (file) {
+                await fs.remove(file).catch(() => {});
+            }
         }
     }
 };
