@@ -1,3 +1,4 @@
+
 /**
  * File Name: dispatcher.js
  * ICA: igbot-api
@@ -11,7 +12,7 @@
 
 /**
  * Message / event dispatcher: prefix parsing, roles, cooldowns, reply and
- * reaction hooks, event script fan-out, and bounded duplicate-event protection.
+ * reaction hooks, event script fan-out, command chat hooks, and duplicate protection.
  * By Tanvir Ahmed (Tanvir143)
  */
 
@@ -36,7 +37,9 @@ function createDispatcher({ api, config, registry, database }) {
 	let dedupeSweepCounter = 0;
 
 	function firstDefined(...values) {
-		return values.find(value => value !== undefined && value !== null && value !== "");
+		return values.find(value =>
+			value !== undefined && value !== null && value !== ""
+		);
 	}
 
 	function eventDedupeKey(event) {
@@ -203,7 +206,7 @@ function createDispatcher({ api, config, registry, database }) {
 	}
 
 	function isBotAdmin(id) {
-		return config.adminBot.includes(String(id));
+		return (config.adminBot || []).map(String).includes(String(id));
 	}
 
 	function roleOf(event, threadData) {
@@ -247,21 +250,23 @@ function createDispatcher({ api, config, registry, database }) {
 	}
 
 	function allowedByWhitelist(event) {
-		if (!config.whiteList.enable) return true;
+		if (!config.whiteList || !config.whiteList.enable) return true;
 
 		const senderID = senderIDOf(event);
 
 		if (isBotAdmin(senderID)) return true;
 
 		return (
-			config.whiteList.userIDs.includes(senderID) ||
-			config.whiteList.threadIDs.includes(String(event.threadID))
+			(config.whiteList.userIDs || []).map(String).includes(senderID) ||
+			(config.whiteList.threadIDs || [])
+				.map(String)
+				.includes(String(event.threadID))
 		);
 	}
 
 	function cooldownRemaining(command, senderID) {
 		const seconds =
-			Number(command.config.cooldown ?? config.cooldown.default) || 0;
+			Number(command.config.cooldown ?? config.cooldown?.default) || 0;
 
 		if (seconds <= 0) return 0;
 
@@ -385,7 +390,7 @@ function createDispatcher({ api, config, registry, database }) {
 		const command = registry.resolve(name);
 
 		if (!command) {
-			if (config.hideNotiMessage.commandNotFound || !hasPrefix) return;
+			if (config.hideNotiMessage?.commandNotFound || !hasPrefix) return;
 
 			const suggestion = suggestionFor(name);
 			const key = suggestion
@@ -402,7 +407,7 @@ function createDispatcher({ api, config, registry, database }) {
 		const commandName = command.config.name.toLowerCase();
 
 		if (userData && userData.banned && userData.banned.status) {
-			if (!config.hideNotiMessage.userBanned) {
+			if (!config.hideNotiMessage?.userBanned) {
 				return message.reply(
 					t(
 						config.language,
@@ -417,11 +422,11 @@ function createDispatcher({ api, config, registry, database }) {
 		}
 
 		if (
-			config.adminOnly.enable &&
+			config.adminOnly?.enable &&
 			!isBotAdmin(senderID) &&
-			!config.adminOnly.ignoreCommands.includes(commandName)
+			!(config.adminOnly.ignoreCommands || []).includes(commandName)
 		) {
-			if (!config.hideNotiMessage.adminOnly) {
+			if (!config.hideNotiMessage?.adminOnly) {
 				return message.reply(
 					t(config.language, "onlyAdminBot", commandName)
 				);
@@ -434,7 +439,7 @@ function createDispatcher({ api, config, registry, database }) {
 		const needRole = requiredRole(command, threadData);
 
 		if (needRole > role) {
-			if (!config.hideNotiMessage.needRoleToUseCommand) {
+			if (!config.hideNotiMessage?.needRoleToUseCommand) {
 				const key = needRole === ROLE_ADMIN_BOT
 					? "onlyAdminBot"
 					: "onlyAdmin";
@@ -520,18 +525,7 @@ function createDispatcher({ api, config, registry, database }) {
 
 			const detail = error && error.message
 				? error.message
-				: (
-					typeof error === "string"
-						? error
-						: (() => {
-							try {
-								return JSON.stringify(error);
-							}
-							catch (_) {
-								return String(error);
-							}
-						})()
-				);
+				: String(error);
 
 			await message.reply(
 				t(config.language, "errorOccurred", commandName, detail)
@@ -551,7 +545,7 @@ function createDispatcher({ api, config, registry, database }) {
 		onReply.delete(String(repliedID));
 
 		if (userData && userData.banned && userData.banned.status) {
-			if (!config.hideNotiMessage.userBanned) {
+			if (!config.hideNotiMessage?.userBanned) {
 				await message.reply(
 					t(
 						config.language,
@@ -678,7 +672,7 @@ function createDispatcher({ api, config, registry, database }) {
 		catch (error) {
 			log.error(
 				"REACTION",
-				`Error in reaction handler for "${entry.commandName}"`,
+				`Error in reaction handler`,
 				error
 			);
 		}
@@ -698,6 +692,8 @@ function createDispatcher({ api, config, registry, database }) {
 				if (!list.includes(event.type)) continue;
 			}
 
+			if (typeof script.onEvent !== "function") continue;
+
 			try {
 				await script.onEvent({
 					api,
@@ -715,6 +711,35 @@ function createDispatcher({ api, config, registry, database }) {
 				log.error(
 					"EVENT",
 					`Error in event "${script.config.name}"`,
+					error
+				);
+			}
+		}
+	}
+
+	// Run onChat hooks exported by command files, e.g. commands/autodl.js.
+	async function runCommandChatHooks(event, message, threadData, userData) {
+		for (const command of registry.commands.values()) {
+			if (typeof command.onChat !== "function") continue;
+
+			try {
+				await command.onChat({
+					api,
+					message,
+					event,
+					usersData: database.users,
+					threadsData: database.threads,
+					userData,
+					threadData,
+					config,
+					role: roleOf(event, threadData),
+					registry
+				});
+			}
+			catch (error) {
+				log.error(
+					"COMMAND CHAT",
+					`Error in onChat "${command.config.name}"`,
 					error
 				);
 			}
@@ -867,6 +892,13 @@ function createDispatcher({ api, config, registry, database }) {
 			case "message":
 			case "message_reply":
 				refreshUserIfNeeded(userData, senderID);
+
+				await runCommandChatHooks(
+					event,
+					message,
+					threadData,
+					userData
+				);
 
 				await runEventScripts(
 					event,
