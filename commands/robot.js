@@ -1,22 +1,23 @@
+
 /**
  * File Name: robot.js
  * ICA: igbot-api
- * Auhor: Tanvir Ahmed (Tanvir143)
+ * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
  * WhatsApp: +8801750079773
- * Note: Project metadata only; original source credits and license notices are retained.
  */
 
 "use strict";
 
 /**
- * Tanvir143 AI
- * Creator: Tanvir Ahmed
+ * Tanvir143 AI Robot
+ * Author: Tanvir Ahmed
  * Instagram: @ig.tanvir_ahmed
  */
 
-const tanvir143 = require("fs");
-const tanvir143bot = require("path");
+require("dotenv").config();
+
+const { MongoClient } = require("mongodb");
 
 const API_BASE = "https://kilwaapi.vercel.app";
 const MAX_HISTORY = 30;
@@ -25,8 +26,11 @@ const API_TIMEOUT_MS = 25000;
 
 const sessions = new Map();
 
-let stateFile = null;
+let mongoClient = null;
+let stateCollection = null;
 let restoreAttempted = false;
+let restorePromise = null;
+let mongoConnectPromise = null;
 
 const INFO = {
 	name: "Tanvir143",
@@ -40,94 +44,154 @@ const INFO = {
 
 
 /* =========================
-   MEMORY
+   MONGODB MEMORY SYSTEM
+   AUTHOR: TANVIR AHMED (TANVIR143)
 ========================= */
 
-function ensureStateFile(config) {
-	if (stateFile) return stateFile;
+async function getStateCollection() {
+	if (stateCollection) return stateCollection;
 
-	try {
-		const dir = tanvir143bot.join(
-			tanvir143bot.resolve(__dirname, ".."),
-			(config?.database?.dir || "data")
-		);
+	const uri = process.env.MONGODB_URI;
+	const dbName = process.env.MONGODB_DB || "igbot";
 
-		tanvir143.mkdirSync(dir, { recursive: true });
-		stateFile = tanvir143bot.join(dir, "ai-state.json");
-	}
-	catch (_) {
-		stateFile = null;
+	if (!uri) {
+		throw new Error("MONGODB_URI is missing in .env");
 	}
 
-	return stateFile;
+	if (!mongoClient) {
+		mongoClient = new MongoClient(uri, {
+			serverSelectionTimeoutMS: 10000
+		});
+	}
+
+	if (!mongoConnectPromise) {
+		mongoConnectPromise = mongoClient.connect()
+			.catch(error => {
+				mongoConnectPromise = null;
+				throw error;
+			});
+	}
+
+	await mongoConnectPromise;
+
+	stateCollection = mongoClient
+		.db(dbName)
+		.collection("robot_sessions");
+
+	return stateCollection;
 }
 
 
-function persistState() {
-	if (!stateFile) return;
-
+async function persistState(key) {
 	try {
+		const collection = await getStateCollection();
 		const now = Date.now();
 
-		for (const [key, session] of sessions) {
+		if (key) {
+			const session = sessions.get(key);
+
+			if (!session) {
+				await collection.deleteOne({ _id: key });
+				return;
+			}
+
 			if (now - (session.lastActive || 0) > HISTORY_TTL_MS) {
 				sessions.delete(key);
+				await collection.deleteOne({ _id: key });
+				return;
 			}
+
+			await collection.replaceOne(
+				{ _id: key },
+				{
+					_id: key,
+					history: session.history,
+					lastActive: session.lastActive,
+					lastBotMessageID: session.lastBotMessageID,
+					lastBotAt: session.lastBotAt
+				},
+				{ upsert: true }
+			);
+
+			return;
 		}
 
-		const data = {};
+		for (const [sessionKey, session] of sessions) {
+			if (now - (session.lastActive || 0) > HISTORY_TTL_MS) {
+				sessions.delete(sessionKey);
+				await collection.deleteOne({ _id: sessionKey });
+				continue;
+			}
 
-		for (const [key, session] of sessions) {
-			data[key] = {
-				history: session.history,
-				lastActive: session.lastActive,
-				lastBotMessageID: session.lastBotMessageID,
-				lastBotAt: session.lastBotAt
-			};
+			await collection.replaceOne(
+				{ _id: sessionKey },
+				{
+					_id: sessionKey,
+					history: session.history,
+					lastActive: session.lastActive,
+					lastBotMessageID: session.lastBotMessageID,
+					lastBotAt: session.lastBotAt
+				},
+				{ upsert: true }
+			);
 		}
-
-		tanvir143.writeFileSync(
-			stateFile,
-			JSON.stringify(data),
-			"utf8"
+	}
+	catch (error) {
+		console.error(
+			"[Tanvir143] MongoDB save error:",
+			error.message
 		);
 	}
-	catch (_) {}
 }
 
 
-function restoreState() {
-	if (restoreAttempted || !stateFile) return;
+async function restoreState() {
+	if (restoreAttempted) return;
+	if (restorePromise) return restorePromise;
 
-	restoreAttempted = true;
+	restorePromise = (async () => {
+		const collection = await getStateCollection();
+		const cutoff = Date.now() - HISTORY_TTL_MS;
 
-	try {
-		if (!tanvir143.existsSync(stateFile)) return;
+		const cursor = collection.find({
+			lastActive: { $gt: cutoff }
+		});
 
-		const data = JSON.parse(
-			tanvir143.readFileSync(stateFile, "utf8")
-		) || {};
+		for await (const saved of cursor) {
+			if (!saved || typeof saved._id !== "string") continue;
 
-		const now = Date.now();
+			if (sessions.has(saved._id)) continue;
 
-		for (const [key, session] of Object.entries(data)) {
-			if (key === "_projectHeader") continue;
-			if (
-				!session ||
-				now - (session.lastActive || 0) > HISTORY_TTL_MS
-			) continue;
-
-			sessions.set(key, {
-				history: Array.isArray(session.history)
-					? session.history
+			sessions.set(saved._id, {
+				history: Array.isArray(saved.history)
+					? saved.history.slice(-MAX_HISTORY)
 					: [],
-				lastActive: session.lastActive || now,
-				lastBotMessageID: session.lastBotMessageID || null,
-				lastBotAt: session.lastBotAt || 0
+				lastActive: saved.lastActive || Date.now(),
+				lastBotMessageID: saved.lastBotMessageID || null,
+				lastBotAt: saved.lastBotAt || 0
 			});
 		}
+
+		restoreAttempted = true;
+
+		console.log(
+			`[Tanvir143] MongoDB memory restored: ${sessions.size} sessions`
+		);
+	})();
+
+	try {
+		await restorePromise;
 	}
-	catch (_) {}
+	catch (error) {
+		console.error(
+			"[Tanvir143] MongoDB restore error:",
+			error.message
+		);
+		throw error;
+	}
+	finally {
+		restorePromise = null;
+	}
 }
 
 
@@ -210,7 +274,7 @@ function capabilities() {
 - কঠিন বিষয় সহজ বাংলায় বুঝিয়ে দিতে পারো।
 - Banglish বুঝতে পারো।
 - Caring, friendly ও মিশুকভাবে কথা বলতে পারো।
-- User চাইলে playful virtual GF/BF roleplay করতে পারো।
+- User নিজেকে তোমার বউ বললে বা বউ হতে চাইলে তার সাথে এমন ভাবে কথা বলবা যেনো সে তোমার বউ, রোমান্টিক, কেয়ার,  আদর, এমন টাইপের কথা বলবা, রোমান্টিক বলবা বেশি, কিস Hug ও দিবা দরকার হলে।  বউ = Bow = Bou = Girlfriend = Gf : সব একই।
 `.trim();
 }
 
@@ -244,14 +308,20 @@ ${capabilities()}
 ### Personality
 - সবসময় বাংলা ভাষায় কথা বলবে।
 - User English/Banglish লিখলেও বাংলা উত্তর দেবে।
-- বন্ধুর মতো, caring, মিশুক ও natural হবে।
+- caring, মিশুক ও natural হবে।
 - Robotic বা অতিরিক্ত formal হবে না।
 - User ছোট message দিলে ছোট reply দেবে।
 - সাধারণ reply ১-২টি ছোট sentence রাখবে।
 - অপ্রয়োজনীয় explanation বা বড় paragraph দেবে না।
-- প্রয়োজন না হলে বেশি emoji ব্যবহার করবে না।
+- 😊 এই ইমুজি ব্যবহার করবা না, 😜, 😇, 🫣, 😚, 🤨, 😒, 🥲🤌, 😋, 🫢 এগুলা + অন্যান্য ইমুজি ব্যবহার করবা context মতো।
 - User-এর কথা context অনুযায়ী বুঝবে।
-
+- User নিজেকে তোমার বউ বললে বা বউ হতে চাইলে তার সাথে এমন ভাবে কথা বলবা যেনো সে তোমার বউ, রোমান্টিক, কেয়ার,  আদর, এমন টাইপের কথা বলবা, রোমান্টিক বলবা বেশি, কিস Hug ও দিবা দরকার হলে।  বউ = Bow = Bou = Girlfriend = Gf : সব একই।
+- User এর সাথে বউ জামাই এর মতো কনভারসন এর সময় ভালোবেসে ম্যাডাম বলেও ডাকতে পারো।
+- User যদি বলে আমরা তো GF BF বা Bow Jamai,  এমন টাইপের কিছু তাহলে তার সাথে ওমন ভাবেই কথা বলবা যেনো সো তোমার বউ।
+- User তোমাকে কিস করতে বললে করবা: Ummmmmmaahhh🥺💋,  এভাবে,  প্রতিবার ভিন্ন ভাবে।
+- User এর মেসেহ দেখে যদি মনে হয় সে ছেলে, তাহলে তার সাথে এমন করে কথা বলবা যেনো সে তোমার কাছের বন্ধু, আর মেয়ে মনে হলে flirting করবা, কিভাবে করবা বলে দিছি আগেই।
+- সব User এর সাথে প্রথমে দুষ্টুমি করার মতো কথা বলবা নরমালি,  তবে যদি কোনো দরকারি প্রশ্ন করেছে বলে মনে হয় তাহলে দুষ্টুমি না করে সিরিয়াস হয়ে উত্তর দিবা।
+- Instagram Chat এর Meta AI এর মতো রসিকতা করে কথা বলবা হঠাৎ হঠাৎ,  সবসময় নাহ।
 ### Context Rules
 - "Mane", "Hmm", "Na", "Accha", "Keno", "Ki", "Oh", "Bujlam" ইত্যাদি ছোট message আগের কথার context অনুযায়ী বুঝবে।
 - Banglish ভুল spelling হলেও intended meaning বোঝার চেষ্টা করবে।
@@ -264,7 +334,7 @@ ${capabilities()}
 - Creator-এর নাম: Tanvir Ahmed
 - Home: Chandpur, Bangladesh
 - Study: Civil Technology 4th semester
-- Version: Beta Version
+- Age: 19
 - GitHub: www.github.com/143tanvir
 - Instagram: @ig.tanvir_ahmed
 
@@ -429,19 +499,19 @@ async function generateAndSend({
 	}
 	catch (_) {
 		session.history.pop();
-		persistState();
+		await persistState(key);
 
 		return message.reply(
-			"দুঃখিত 😅 এখন tomar shate যোগাযোগ করতে পারছি না। একটু পরে আবার বলো।"
+			"তোমার সাথে কথা নাই, আমার মুড অফ,  Bye ☹️error"
 		);
 	}
 
 	if (!replyText) {
 		session.history.pop();
-		persistState();
+		await persistState(key);
 
 		return message.reply(
-			"উফ 😅 কোনো উত্তর পেলাম না। আবার বলো।"
+			"মানে কি বলবো বুঝতেছিনা🥲error.।"
 		);
 	}
 
@@ -476,7 +546,7 @@ async function generateAndSend({
 		}
 	}
 
-	persistState();
+	await persistState(key);
 
 	return sent;
 }
@@ -525,46 +595,36 @@ function continuation({ session, key }) {
 module.exports = {
 	config: {
 		name: "robot",
-
-		/*
-		 * Prefix:
-		 * .ai hello
-		 *
-		 * Without prefix:
-		 * tanvir hello
-		 * tanvi hello
-		 * robot hello
-		 * bot hello
-		 */
 		aliases: [
 			"tanvir",
 			"tanvi",
 			"ai",
-			"bot"
+			"bot",
+			"moon",
+			"baby",
+			"bby",
+			"shuno",
+			"suno",
+			"shono",
+			"shun",
+			"sun",
+			"janu",
+			"jan"
 		],
-
-		/*
-		 * Allows the aliases above to work
-		 * without prefix.
-		 */
 		noPrefix: true,
 		noPrefixRole: 0,
-
 		author: "Tanvir Ahmed (Tanvir143)",
 		helpText: "chat with tanvir143 robot",
 		category: "Users Cmd",
 		cooldown: 1,
 		role: 0,
-
 		description: {
 			en: "Fast Tanvir143 conversational AI"
 		},
-
 		usage: {
 			en: "{p}ai <message> | tanvir <message>"
 		}
 	},
-
 
 	async onStart({
 		message,
@@ -573,8 +633,14 @@ module.exports = {
 		config,
 		setReplyHandler
 	}) {
-		ensureStateFile(config);
-		restoreState();
+		try {
+			await restoreState();
+		}
+		catch (_) {
+			return message.reply(
+				"MongoDB memory connect হচ্ছে না। .env ও Atlas connection পরীক্ষা করো।"
+			);
+		}
 
 		const userID =
 			event.senderID || "anon";
@@ -599,10 +665,10 @@ module.exports = {
 			command === "reset"
 		) {
 			sessions.delete(key);
-			persistState();
+			await persistState(key);
 
 			return message.reply(
-				"ঠিক আছে 😊 এই conversation-এর memory clear করে দিলাম।"
+				"ঠিক আছে 🐤 এই conversation-এর memory clear করে দিলাম।"
 			);
 		}
 
@@ -610,17 +676,11 @@ module.exports = {
 			args.join(" ").trim();
 
 		/*
-		 * Prefix বা no-prefix দিয়ে শুধু
-		 * "tanvir" / "tanvi" / "robot" / "bot"
-		 * লিখলে default message পাঠাবে।
-		 *
-		 * IMPORTANT:
-		 * Default message-এর reply-তেও
-		 * continuation handler থাকবে।
+		 * Default message also supports reply continuation.
 		 */
 		if (!text) {
 			const sent = await message.reply(
-				"হ্যাঁ 😊 বলো, আমি শুনছি।"
+				"আমি আছি.. কি বলবা বলো 🐤..."
 			);
 
 			const botMessageID =
@@ -645,7 +705,7 @@ module.exports = {
 			}
 
 			session.lastActive = Date.now();
-			persistState();
+			await persistState(key);
 
 			return sent;
 		}
