@@ -34,50 +34,57 @@ const nkxClient = axios.create({
   headers: { "X-API-Key": NKX_API_KEY }
 });
 
+/*
+ * Models using the Hub API do NOT get an NKX prefix.
+ * Models using NKX /api/generate get the NKX prefix.
+ */
+
 const GEN_MODELS = [
-  { name: "Flux 2 Max", path: "/api/flux2max", hub: true },
-  { name: "GPT Image 2", path: "/api/gptimage2", hub: true },
-  { name: "GPT 2.5 Flare", path: "/api/gpt2.5-flare", hub: true },
-  { name: "GPT 2.5 Flare V2", path: "/api/gpt2.5-flare-v2", hub: true },
-  { name: "GPT 2.5 Sunburst", path: "/api/gpt2.5-sunburst", hub: true },
-  { name: "GPT Image 2.5 Sunburst V2", path: "/api/gptimage2.5-sunburst-v2", hub: true },
-  { name: "Grok", path: "/api/grok", hub: true },
-  { name: "Nano Banana", path: "/api/nb", hub: true },
-  { name: "Nano Banana 2", path: "/api/nanobanana2", hub: true },
-  { name: "Qwen Image 2", path: "/api/qwenimage2", hub: true },
-  { name: "Qwen Image", model: "qwen-image" },
-  { name: "SeedDream 4", path: "/api/seedream4", hub: true },
-  { name: "Nano Banana 2", model: "nano-banana-2" },
-  { name: "GPT Image 2 Low", model: "gpt-image-2-low" },
-  { name: "Flux 2 Dev", model: "flux-2-dev" },
-  { name: "Flux 2 Flex", model: "flux-2-flex" },
-  { name: "Flux 2 Pro", model: "flux-2-pro" },
-  { name: "Flux Krea", model: "flux-krea" },
-  { name: "Ideogram V3 Turbo", model: "ideogram-v3-turbo" },
-  { name: "SeedDream 4", model: "seedream-4" },
-  { name: "SeedDream 4.5", model: "seedream-4-5" },
-  { name: "SeedDream 5", model: "seedream-5" },
-  { name: "Qwen Image 2", model: "qwen-image-2" },
-  { name: "Qwen Image 2 Pro", model: "qwen-image-2-pro" },
-  { name: "Gemini 2.5 Flash Image", model: "gemini-2-5-flash-image" },
-  { name: "GPT 2.5 Flare Low", model: "gpt-image-2-5-flare-low" },
-  { name: "GPT 2.5 Sunburst Low", model: "gpt-image-2-5-sunburst-low" }
+  { name: "⚡ Flux 2 Max", path: "/api/flux2max", hub: true },
+  { name: "🖼️ GPT Image 2", path: "/api/gptimage2", hub: true },
+  { name: "✨ GPT 2.5 Flare", path: "/api/gpt2.5-flare", hub: true },
+  { name: "🌟 GPT 2.5 Flare V2", path: "/api/gpt2.5-flare-v2", hub: true },
+  { name: "☀️ GPT 2.5 Sunburst", path: "/api/gpt2.5-sunburst", hub: true },
+  { name: "🎨 GPT Image 2.5 Sunburst V2", path: "/api/gptimage2.5-sunburst-v2", hub: true },
+  { name: "🤖 Grok", path: "/api/grok", hub: true },
+  { name: "🍌 Nano Banana", path: "/api/nb", hub: true },
+  { name: "🍌 Nano Banana 2", path: "/api/nanobanana2", hub: true },
+  { name: "🧠 Qwen Image 2", path: "/api/qwenimage2", hub: true },
+  { name: "🎬 SeedDream 4", path: "/api/seedream4", hub: true },
+
+  { name: "🧠 NKX Qwen Image", model: "qwen-image" },
+  { name: "🍌 NKX Nano Banana 2", model: "nano-banana-2" },
+  { name: "🖼️ NKX GPT Image 2 Low", model: "gpt-image-2-low" },
+  { name: "⚡ NKX Flux 2 Dev", model: "flux-2-dev" },
+  { name: "⚡ NKX Flux 2 Flex", model: "flux-2-flex" },
+  { name: "⚡ NKX Flux 2 Pro", model: "flux-2-pro" },
+  { name: "🎨 NKX Flux Krea", model: "flux-krea" },
+  { name: "🪄 NKX Ideogram V3 Turbo", model: "ideogram-v3-turbo" },
+  { name: "🎬 NKX SeedDream 4", model: "seedream-4" },
+  { name: "🎬 NKX SeedDream 4.5", model: "seedream-4-5" },
+  { name: "🎬 NKX SeedDream 5", model: "seedream-5" },
+  { name: "🧠 NKX Qwen Image 2", model: "qwen-image-2" },
+  { name: "🧠 NKX Qwen Image 2 Pro", model: "qwen-image-2-pro" },
+  { name: "✨ NKX Gemini 2.5 Flash Image", model: "gemini-2-5-flash-image" },
+  { name: "🌟 NKX GPT 2.5 Flare Low", model: "gpt-image-2-5-flare-low" },
+  { name: "☀️ NKX GPT 2.5 Sunburst Low", model: "gpt-image-2-5-sunburst-low" }
 ];
 
 const EDIT_MODELS = [
-  { name: "Classic Edit (Hub)", hub: true },
-  { name: "Nano Banana 2 Edit", model: "nano-banana-2-edit" },
-  { name: "GPT Image 2 Edit", model: "gpt-image-2-edit" },
-  { name: "Flux 2 Dev Edit", model: "flux-2-dev-edit" },
-  { name: "Flux 2 Pro Edit", model: "flux-2-pro-edit" },
-  { name: "Flux Krea Edit", model: "flux-krea-edit" },
-  { name: "Flux Kontext Dev", model: "flux-kontext-dev" },
-  { name: "SeedDream 4 Edit", model: "seedream-4-edit" },
-  { name: "SeedDream 4.5 Edit", model: "seedream-4-5-edit" },
-  { name: "SeedDream 5 Edit", model: "seedream-5-edit" },
-  { name: "Gemini 2.5 Flash Edit", model: "gemini-2-5-flash-image-edit" },
-  { name: "GPT 2.5 Flare Edit", model: "gpt-image-2-5-flare-low-edit" },
-  { name: "GPT 2.5 Sunburst Edit", model: "gpt-image-2-5-sunburst-low-edit" }
+  { name: "🖼️ Classic Edit", hub: true },
+
+  { name: "🍌 NKX Nano Banana 2 Edit", model: "nano-banana-2-edit" },
+  { name: "🖼️ NKX GPT Image 2 Edit", model: "gpt-image-2-edit" },
+  { name: "⚡ NKX Flux 2 Dev Edit", model: "flux-2-dev-edit" },
+  { name: "⚡ NKX Flux 2 Pro Edit", model: "flux-2-pro-edit" },
+  { name: "🎨 NKX Flux Krea Edit", model: "flux-krea-edit" },
+  { name: "🪄 NKX Flux Kontext Dev", model: "flux-kontext-dev" },
+  { name: "🎬 NKX SeedDream 4 Edit", model: "seedream-4-edit" },
+  { name: "🎬 NKX SeedDream 4.5 Edit", model: "seedream-4-5-edit" },
+  { name: "🎬 NKX SeedDream 5 Edit", model: "seedream-5-edit" },
+  { name: "✨ NKX Gemini 2.5 Flash Edit", model: "gemini-2-5-flash-image-edit" },
+  { name: "🌟 NKX GPT 2.5 Flare Edit", model: "gpt-image-2-5-flare-low-edit" },
+  { name: "☀️ NKX GPT 2.5 Sunburst Edit", model: "gpt-image-2-5-sunburst-low-edit" }
 ];
 
 function formatNKXError(res) {
@@ -85,7 +92,8 @@ function formatNKXError(res) {
 
   if (d && typeof d === "object") {
     if (d.detail && typeof d.detail === "object" && !Array.isArray(d.detail)) {
-      return d.detail.error || d.error || "Insufficient balance to run this generation.";
+      return d.detail.error || d.error ||
+        "Insufficient balance to run this generation.";
     }
 
     if (typeof d.detail === "string") return d.detail;
@@ -102,11 +110,12 @@ function formatNKXError(res) {
   if (res.status === 401) return "The NKX API rejected its key.";
   if (res.status === 402) return "Not enough API credits.";
   if (res.status === 504) return "The job timed out.";
+
   if (res.status === 502 || res.status === 503) {
     return "The generation server is temporarily unavailable.";
   }
 
-  return `NKX request failed (HTTP ${res.status}).`;
+  return `request failed (HTTP ${res.status}).`;
 }
 
 async function runNKXJob(payload) {
@@ -130,7 +139,7 @@ async function runNKXJob(payload) {
   const data = response.data || {};
   const url = data.url || data.thumbnail;
 
-  if (!url || typeof url !== "string") {
+  if (typeof url !== "string" || !url) {
     throw new Error("NKX finished the job but returned no image URL.");
   }
 
@@ -203,24 +212,22 @@ function photosOf(attachments) {
     .filter(Boolean);
 }
 
-function sameFile(a, b) {
-  try {
-    return new URL(a).pathname === new URL(b).pathname;
-  } catch (_) {
-    return a === b;
-  }
-}
-
 function getThreadID(event) {
   return event.threadID || event.threadId;
 }
 
 function getReply(event) {
-  return event.messageReply || event.replyMessage || event.repliedMessage || null;
+  return event.messageReply ||
+    event.replyMessage ||
+    event.repliedMessage ||
+    null;
 }
 
 function getImages(event) {
-  const current = Array.isArray(event.attachments) ? event.attachments : [];
+  const current = Array.isArray(event.attachments)
+    ? event.attachments
+    : [];
+
   const replyAttachments = Array.isArray(getReply(event)?.attachments)
     ? getReply(event).attachments
     : [];
@@ -232,7 +239,10 @@ function getImages(event) {
 }
 
 async function getHubBaseURL() {
-  const response = await axios.get(API_CONFIG_URL, { timeout: 20000 });
+  const response = await axios.get(API_CONFIG_URL, {
+    timeout: 20000
+  });
+
   const data = response.data || {};
 
   const base =
@@ -279,14 +289,20 @@ async function saveHubResponse(response, prefix) {
         ? ".webp"
         : ".png";
 
-    const file = path.join(TEMP_DIR, `${prefix}_${Date.now()}${ext}`);
+    const file = path.join(
+      TEMP_DIR,
+      `${prefix}_${Date.now()}${ext}`
+    );
+
     await fs.writeFile(file, Buffer.from(response.data));
     return file;
   }
 
   let data = response.data;
 
-  if (Buffer.isBuffer(data)) data = data.toString("utf8");
+  if (Buffer.isBuffer(data)) {
+    data = data.toString("utf8");
+  }
 
   if (typeof data === "string") {
     try {
@@ -300,7 +316,9 @@ async function saveHubResponse(response, prefix) {
 
   if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
     throw new Error(
-      data?.detail || data?.error || data?.message ||
+      data?.detail ||
+      data?.error ||
+      data?.message ||
       "Hub API returned no image URL."
     );
   }
@@ -310,7 +328,10 @@ async function saveHubResponse(response, prefix) {
 
 async function generateHub(baseURL, model, prompt, ratio) {
   const response = await axios.get(`${baseURL}${model.path}`, {
-    params: { prompt, ...(ratio ? { ratio } : {}) },
+    params: {
+      prompt,
+      ...(ratio ? { ratio } : {})
+    },
     responseType: "arraybuffer",
     timeout: 240000,
     validateStatus: () => true
@@ -325,7 +346,10 @@ async function generateHub(baseURL, model, prompt, ratio) {
 
 async function editHub(baseURL, imageURL, prompt) {
   const response = await axios.get(`${baseURL}/api/edit`, {
-    params: { img: imageURL, prompt },
+    params: {
+      img: imageURL,
+      prompt
+    },
     responseType: "arraybuffer",
     timeout: 240000,
     validateStatus: () => true
@@ -368,36 +392,37 @@ async function editNKX(model, prompt, imageURL, ratio) {
 }
 
 function helpText() {
-  let text = `🖼️ ${AUTHOR} GENX\n\nGENERATION MODELS\n`;
+  let text = `🖼️ ${AUTHOR} GEN\n\n🎨 GENERATE MODELS\n`;
 
-  GEN_MODELS.forEach((model, i) => {
-    text += `${i + 1}. ${model.name}\n`;
+  GEN_MODELS.forEach((model, index) => {
+    text += `${index + 1}. ${model.name}\n`;
   });
 
-  text += "\nEDIT MODELS\n";
+  text += "\n🪄 EDIT MODELS\n";
 
-  EDIT_MODELS.forEach((model, i) => {
-    text += `${i + 1}. ${model.name}\n`;
+  EDIT_MODELS.forEach((model, index) => {
+    text += `${index + 1}. ${model.name}\n`;
   });
 
-  text += "\nEXAMPLES\n";
+  text += "\n📝 USAGE\n";
   text += ".genx +1 a cute cat\n";
-  text += ".genx +11 a beautiful village --ar 16:9\n";
+  text += ".genx +12 a beautiful village --ar 16:9\n";
   text += ".genx +edit1 make this photo cinematic\n";
   text += ".genx +edit2 add sunglasses\n";
-  text += "\nRatios: " + RATIOS.join(", ");
+  text += "\n📐 RATIOS: " + RATIOS.join(", ");
+  text += "\n📷 For Edit, reply to one photo with the command.";
 
   return text;
 }
 
 module.exports = {
   config: {
-    name: "genx",
-    aliases: ["gen", "imagegen"],
-    version: "3.1.0",
+    name: "gen",
+    aliases: ["genx", "imagegen"],
+    version: "3.3.0",
     author: "Tanvir Ahmed (Tanvir143)",
-    cooldown: 6,
-    role: 2,
+    cooldwn: 6,
+    role: 0,
     description: "Generate and edit images with AI models.",
     category: "image",
     guide: ".genx help | .genx +1 prompt | .genx +edit1 prompt"
@@ -444,7 +469,10 @@ module.exports = {
     const prompt = parsed.prompt;
 
     if (!prompt) {
-      return api.sendMessage("❌ Please enter a prompt.", threadID);
+      return api.sendMessage(
+        "❌ Please enter a prompt.",
+        threadID
+      );
     }
 
     if (parsed.ratio && !RATIOS.includes(parsed.ratio)) {
@@ -521,7 +549,10 @@ module.exports = {
         attachment: fs.createReadStream(filePath)
       }, threadID);
     } catch (error) {
-      console.error(`[${AUTHOR} GENX ERROR]`, error.stack || error.message);
+      console.error(
+        `[${AUTHOR} GENX ERROR]`,
+        error.stack || error.message
+      );
 
       try {
         await api.sendMessage(
