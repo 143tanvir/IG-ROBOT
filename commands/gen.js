@@ -1,6 +1,6 @@
 
 /**
- * File Name: gen.js
+ * File Name: genx.js
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
@@ -9,577 +9,358 @@
 
 "use strict";
 
-const tanvir143Axios = require("axios");
-const tanvirrRobotFs = require("fs-extra");
-const tanvir143Path = require("path");
-const tanvir143Nkx = require("../src/nkxClient");
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
+const os = require("os");
 
-const tanvir143ConfigUrl =
-	"https://raw.githubusercontent.com/goatbotnx/xalmanx210/refs/heads/main/apis.json";
-const tanvir143ApiKey = "xalman-hub";
-const tanvir143HistoryTTL = 30 * 60 * 1000;
-const tanvir143MaxHistory = 20;
+const API_CONFIG_URL =
+  "https://raw.githubusercontent.com/goatbotnx/xalmanx210/refs/heads/main/apis.json";
 
-const tanvir143GenerateModels = [
-	{ name: "Flux 2 Max", path: "/api/flux2max", hub: true, image: true },
-	{ name: "GPT Image 2", path: "/api/gptimage2", hub: true, image: true },
-	{ name: "GPT 2.5 Flare", path: "/api/gpt2.5-flare", hub: true, image: true },
-	{ name: "GPT 2.5 Flare V2", path: "/api/gpt2.5-flare-v2", hub: true, image: true },
-	{ name: "GPT 2.5 Sunburst", path: "/api/gpt2.5-sunburst", hub: true, image: true },
-	{ name: "GPT Image 2.5 Sunburst V2", path: "/api/gptimage2.5-sunburst-v2", hub: true, image: true },
-	{ name: "Grok", path: "/api/grok", hub: true, image: true },
-	{ name: "Nano Banana", path: "/api/nb", hub: true, image: true },
-	{ name: "Nano Banana 2", path: "/api/nanobanana2", hub: true, image: true },
-	{ name: "Qwen Image 2", path: "/api/qwenimage2", hub: true, image: true },
-	{ name: "Qwen Image", model: "qwen-image", image: false },
-	{ name: "SeedDream 4", path: "/api/seedream4", hub: true, image: true },
-	{ name: "Nano Banana 2", model: "nano-banana-2" },
-	{ name: "GPT Image 2", model: "gpt-image-2-low" },
-	{ name: "Flux 2 Dev", model: "flux-2-dev" },
-	{ name: "Flux 2 Flex", model: "flux-2-flex" },
-	{ name: "Flux 2 Pro", model: "flux-2-pro" },
-	{ name: "Flux Krea", model: "flux-krea" },
-	{ name: "Ideogram V3 Turbo", model: "ideogram-v3-turbo" },
-	{ name: "SeedDream 4", model: "seedream-4" },
-	{ name: "SeedDream 4.5", model: "seedream-4-5" },
-	{ name: "SeedDream 5", model: "seedream-5" },
-	{ name: "Qwen Image 2", model: "qwen-image-2" },
-	{ name: "Qwen Image 2 Pro", model: "qwen-image-2-pro" },
-	{ name: "Gemini 2.5 Flash Image", model: "gemini-2-5-flash-image" },
-	{ name: "GPT 2.5 Flare", model: "gpt-image-2-5-flare-low" },
-	{ name: "GPT 2.5 Sunburst", model: "gpt-image-2-5-sunburst-low" }
+const API_KEY = "xalman-hub";
+const AUTHOR = "Tanvir143";
+const TEMP_DIR = path.join(os.tmpdir(), "igbot-genx");
+
+const GENERATE_MODELS = [
+  { name: "Flux 2 Max", path: "/api/flux2max", hub: true },
+  { name: "GPT Image 2", path: "/api/gptimage2", hub: true },
+  { name: "GPT 2.5 Flare", path: "/api/gpt2.5-flare", hub: true },
+  { name: "GPT 2.5 Flare V2", path: "/api/gpt2.5-flare-v2", hub: true },
+  { name: "GPT 2.5 Sunburst", path: "/api/gpt2.5-sunburst", hub: true },
+  { name: "GPT Image 2.5 Sunburst V2", path: "/api/gptimage2.5-sunburst-v2", hub: true },
+  { name: "Grok", path: "/api/grok", hub: true },
+  { name: "Nano Banana", path: "/api/nb", hub: true },
+  { name: "Nano Banana 2", path: "/api/nanobanana2", hub: true },
+  { name: "Qwen Image 2", path: "/api/qwenimage2", hub: true },
+  { name: "Qwen Image 2 (NKX)", model: "qwen-image" },
+  { name: "SeedDream 4", path: "/api/seedream4", hub: true },
+  { name: "Nano Banana 2", model: "nano-banana-2" },
+  { name: "GPT Image 2 Low", model: "gpt-image-2-low" },
+  { name: "Flux 2 Dev", model: "flux-2-dev" },
+  { name: "Flux 2 Flex", model: "flux-2-flex" },
+  { name: "Flux 2 Pro", model: "flux-2-pro" },
+  { name: "Flux Krea", model: "flux-krea" },
+  { name: "Ideogram V3 Turbo", model: "ideogram-v3-turbo" },
+  { name: "SeedDream 4", model: "seedream-4" },
+  { name: "SeedDream 4.5", model: "seedream-4-5" },
+  { name: "SeedDream 5", model: "seedream-5" },
+  { name: "Qwen Image 2", model: "qwen-image-2" },
+  { name: "Qwen Image 2 Pro", model: "qwen-image-2-pro" },
+  { name: "Gemini 2.5 Flash Image", model: "gemini-2-5-flash-image" },
+  { name: "GPT 2.5 Flare Low", model: "gpt-image-2-5-flare-low" },
+  { name: "GPT 2.5 Sunburst Low", model: "gpt-image-2-5-sunburst-low" }
 ];
 
-const tanvir143EditModels = [
-	{ name: "Classic Edit", hub: true, maxImages: 1 },
-	{ name: "Nano Banana 2 Edit", model: "nano-banana-2-edit", maxImages: 2 },
-	{ name: "GPT Image 2 Edit", model: "gpt-image-2-edit", maxImages: 2 },
-	{ name: "Flux 2 Dev Edit", model: "flux-2-dev-edit", maxImages: 2 },
-	{ name: "Flux 2 Pro Edit", model: "flux-2-pro-edit", maxImages: 2 },
-	{ name: "Flux Krea Edit", model: "flux-krea-edit", maxImages: 2 },
-	{ name: "Flux Kontext Dev", model: "flux-kontext-dev", maxImages: 2 },
-	{ name: "SeedDream 4 Edit", model: "seedream-4-edit", maxImages: 2 },
-	{ name: "SeedDream 4.5 Edit", model: "seedream-4-5-edit", maxImages: 2 },
-	{ name: "SeedDream 5 Edit", model: "seedream-5-edit", maxImages: 2 },
-	{ name: "Gemini 2.5 Flash Edit", model: "gemini-2-5-flash-image-edit", maxImages: 2 },
-	{ name: "GPT 2.5 Flare Edit", model: "gpt-image-2-5-flare-low-edit", maxImages: 2 },
-	{ name: "GPT 2.5 Sunburst Edit", model: "gpt-image-2-5-sunburst-low-edit", maxImages: 2 }
+const EDIT_MODELS = [
+  { name: "Classic Edit (Hub)", hub: true, maxImages: 1 },
+  { name: "Nano Banana 2 Edit", model: "nano-banana-2-edit", maxImages: 2 },
+  { name: "GPT Image 2 Edit", model: "gpt-image-2-edit", maxImages: 2 },
+  { name: "Flux 2 Dev Edit", model: "flux-2-dev-edit", maxImages: 2 },
+  { name: "Flux 2 Pro Edit", model: "flux-2-pro-edit", maxImages: 2 },
+  { name: "Flux Krea Edit", model: "flux-krea-edit", maxImages: 2 },
+  { name: "Flux Kontext Dev", model: "flux-kontext-dev", maxImages: 2 },
+  { name: "SeedDream 4 Edit", model: "seedream-4-edit", maxImages: 2 },
+  { name: "SeedDream 4.5 Edit", model: "seedream-4-5-edit", maxImages: 2 },
+  { name: "SeedDream 5 Edit", model: "seedream-5-edit", maxImages: 2 },
+  { name: "Gemini 2.5 Flash Edit", model: "gemini-2-5-flash-image-edit", maxImages: 2 },
+  { name: "GPT 2.5 Flare Edit", model: "gpt-image-2-5-flare-low-edit", maxImages: 2 },
+  { name: "GPT 2.5 Sunburst Edit", model: "gpt-image-2-5-sunburst-low-edit", maxImages: 2 }
 ];
 
-const tanvir143ImageHistory = new Map();
-
-function tanvir143Send(api, message, threadID, callback) {
-	return api.sendMessage(message, threadID, callback);
+function getThreadID(event) {
+  return event.threadID || event.threadId;
 }
 
-function tanvir143GetThreadHistory(threadID) {
-	const now = Date.now();
-	let history = tanvir143ImageHistory.get(String(threadID)) || [];
-
-	history = history.filter(item => now - item.time < tanvir143HistoryTTL);
-	tanvir143ImageHistory.set(String(threadID), history);
-
-	return history;
+function getSenderID(event) {
+  return event.senderID || event.userID;
 }
 
-function tanvir143RememberImages(event) {
-	if (!event || !event.threadID) return;
-
-	const photos = tanvir143Nkx.photosOf(event.attachments || []);
-	if (!Array.isArray(photos) || !photos.length) return;
-
-	const threadID = String(event.threadID);
-	const history = tanvir143GetThreadHistory(threadID);
-
-	for (const photo of photos) {
-		const url = typeof photo === "string"
-			? photo
-			: photo && (photo.url || photo.src || photo.uri);
-
-		if (!url || !/^https?:\/\//i.test(String(url))) continue;
-
-		if (history.some(item => item.url === String(url))) continue;
-
-		history.push({
-			url: String(url),
-			time: Date.now(),
-			messageID: event.messageID || null
-		});
-	}
-
-	while (history.length > tanvir143MaxHistory) history.shift();
-
-	tanvir143ImageHistory.set(threadID, history);
+function getReply(event) {
+  return event.messageReply || event.replyMessage || event.repliedMessage || null;
 }
 
-function tanvir143GetReplyImages(event) {
-	const result = [];
-	const reply = event && (
-		event.messageReply ||
-		event.replyMessage ||
-		event.repliedMessage
-	);
+function getAttachments(event) {
+  const list = [];
+  const sources = [
+    event.attachments,
+    getReply(event)?.attachments
+  ];
 
-	if (!reply) return result;
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
 
-	const photos = tanvir143Nkx.photosOf(reply.attachments || []);
-	for (const photo of photos || []) {
-		const url = typeof photo === "string"
-			? photo
-			: photo && (photo.url || photo.src || photo.uri);
+    for (const item of source) {
+      if (!item) continue;
+      const type = String(item.type || "").toLowerCase();
+      const url = item.url || item.src || item.uri;
 
-		if (url && /^https?:\/\//i.test(String(url))) {
-			result.push(String(url));
-		}
-	}
+      if (
+        url &&
+        (!type || type.includes("photo") || type.includes("image"))
+      ) {
+        list.push(url);
+      }
+    }
+  }
 
-	return result;
+  return [...new Set(list)].slice(0, 2);
 }
 
-function tanvir143UniqueImages(images) {
-	const result = [];
+function helpText() {
+  let text = `🖼️ GEN\n\n`;
+  text += "GENERATION MODELS\n";
 
-	for (const image of images) {
-		if (!image || !/^https?:\/\//i.test(String(image))) continue;
-		if (!result.includes(String(image))) result.push(String(image));
-	}
+  GENERATE_MODELS.forEach((model, index) => {
+    text += `${index + 1}. ${model.name}\n`;
+  });
 
-	return result;
+  text += "\nEDIT MODELS\n";
+
+  EDIT_MODELS.forEach((model, index) => {
+    text += `${index + 1}. ${model.name}\n`;
+  });
+
+  text += "\nEXAMPLES\n";
+  text += ".genx +1 a cute cat\n";
+  text += ".genx +2 a beautiful village\n";
+  text += ".genx +edit1 make the photo brighter (reply to photo)\n";
+  text += ".genx +edit2+2 combine these two photos (reply to photo)\n";
+
+  text += "\n+edit1 supports one image; other edit models are configured for up to two images.";
+  return text;
 }
 
-function tanvir143Help() {
-	const generate = tanvir143GenerateModels
-		.map((model, index) => `${index + 1}. ${model.name}`)
-		.join("\n");
+async function getHubBaseURL() {
+  const response = await axios.get(API_CONFIG_URL, { timeout: 15000 });
+  const data = response.data;
 
-	const edit = tanvir143EditModels
-		.map((model, index) => `${index + 1}. ${model.name}${model.maxImages === 1 ? " (1 image)" : " (up to 2 images)"}`)
-		.join("\n");
+  const base =
+    data[API_KEY] ||
+    data.api ||
+    data.baseURL ||
+    data.baseUrl ||
+    data.url;
 
-	return (
-		"🎨 TANVIR143 GENX HELP\n\n" +
-		"━━ IMAGE GENERATION (27) ━━\n" +
-		generate +
-		"\n\n━━ IMAGE EDITING (13) ━━\n" +
-		edit +
-		"\n\n━━ EXAMPLES ━━\n" +
-		".genx +1 a cute cat\n" +
-		".genx +8 a realistic sunset\n" +
-		"Reply to a photo: .genx +edit1 add sunglasses\n" +
-		"Reply to a photo: .genx +edit2+2 combine both people\n\n" +
-		"Generation: +1 to +27\n" +
-		"Editing: +edit1 to +edit13\n" +
-		"Two-image editing requires an edit model that supports 2 images.\n\n" +
-		"Note: Image history is temporary and is cleared when the bot restarts."
-	);
+  if (!base || typeof base !== "string") {
+    throw new Error("API base URL was not found in the API configuration.");
+  }
+
+  return base.replace(/\/+$/, "");
 }
 
-async function tanvir143GetHubBase() {
-	const response = await tanvir143Axios.get(tanvir143ConfigUrl, {
-		timeout: 15000
-	});
-
-	const data = response.data;
-	const base = data && (
-		data[tanvir143ApiKey] ||
-		data.api ||
-		data.baseURL ||
-		data.baseUrl ||
-		data.url
-	);
-
-	if (!base || typeof base !== "string") {
-		throw new Error("API base URL পাওয়া যায়নি। apis.json configuration check করো।");
-	}
-
-	return base.replace(/\/+$/, "");
+function isImageResponse(response) {
+  const type = String(response.headers["content-type"] || "").toLowerCase();
+  return type.startsWith("image/");
 }
 
-function tanvir143GetImageUrl(data) {
-	if (typeof data === "string" && /^https?:\/\//i.test(data)) return data;
+async function saveImageResponse(response, prefix) {
+  if (isImageResponse(response)) {
+    const ext = response.headers["content-type"].includes("jpeg")
+      ? ".jpg"
+      : response.headers["content-type"].includes("webp")
+        ? ".webp"
+        : ".png";
 
-	if (!data || typeof data !== "object") return null;
+    await fs.ensureDir(TEMP_DIR);
+    const file = path.join(TEMP_DIR, `${prefix}-${Date.now()}${ext}`);
+    await fs.writeFile(file, Buffer.from(response.data));
+    return file;
+  }
 
-	const candidates = [
-		data.url,
-		data.image,
-		data.imageUrl,
-		data.result,
-		data.output,
-		data.download,
-		data.data && data.data.url,
-		data.data && data.data.image,
-		data.data && data.data.imageUrl,
-		data.result && data.result.url,
-		data.result && data.result.image
-	];
+  let body = response.data;
 
-	return candidates.find(value =>
-		typeof value === "string" && /^https?:\/\//i.test(value)
-	) || null;
+  if (Buffer.isBuffer(body)) {
+    body = body.toString("utf8");
+  }
+
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      throw new Error("API did not return an image or valid JSON.");
+    }
+  }
+
+  const url =
+    body?.url ||
+    body?.image ||
+    body?.imageUrl ||
+    body?.result?.url ||
+    body?.data?.url ||
+    body?.data?.image;
+
+  if (!url || typeof url !== "string") {
+    throw new Error(body?.message || body?.error || "API returned no image URL.");
+  }
+
+  const imageResponse = await axios.get(url, {
+    responseType: "arraybuffer",
+    timeout: 120000
+  });
+
+  if (!isImageResponse(imageResponse)) {
+    throw new Error("The returned URL did not provide an image.");
+  }
+
+  const ext = String(imageResponse.headers["content-type"]).includes("jpeg")
+    ? ".jpg"
+    : String(imageResponse.headers["content-type"]).includes("webp")
+      ? ".webp"
+      : ".png";
+
+  await fs.ensureDir(TEMP_DIR);
+  const file = path.join(TEMP_DIR, `${prefix}-${Date.now()}${ext}`);
+  await fs.writeFile(file, Buffer.from(imageResponse.data));
+  return file;
 }
 
-async function tanvir143SaveHubImage(response, prefix) {
-	const contentType = String(response.headers && response.headers["content-type"] || "").toLowerCase();
+async function callHubGeneration(baseURL, model, prompt) {
+  const response = await axios.get(`${baseURL}${model.path}`, {
+    params: { prompt },
+    responseType: "arraybuffer",
+    timeout: 180000,
+    validateStatus: status => status >= 200 && status < 500
+  });
 
-	if (contentType.includes("image/") || Buffer.isBuffer(response.data)) {
-		const buffer = Buffer.isBuffer(response.data)
-			? response.data
-			: Buffer.from(response.data);
+  if (response.status >= 400) {
+    throw new Error(`Generation API returned HTTP ${response.status}.`);
+  }
 
-		if (buffer.length > 0 && (contentType.includes("image/") || buffer[0] === 0x89 || buffer[0] === 0xFF)) {
-			const filePath = tanvir143Path.join(
-				require("os").tmpdir(),
-				`${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}.png`
-			);
-
-			await tanvirrRobotFs.writeFile(filePath, buffer);
-			return filePath;
-		}
-	}
-
-	let data = response.data;
-
-	if (Buffer.isBuffer(data)) {
-		try {
-			data = JSON.parse(data.toString("utf8"));
-		} catch (_) {
-			throw new Error("API response image বা valid JSON নয়।");
-		}
-	}
-
-	const imageUrl = tanvir143GetImageUrl(data);
-
-	if (!imageUrl) {
-		const detail = data && (data.message || data.error || data.msg);
-		throw new Error(detail || "API response থেকে image URL পাওয়া যায়নি।");
-	}
-
-	const imageResponse = await tanvir143Axios.get(imageUrl, {
-		responseType: "arraybuffer",
-		timeout: 120000
-	});
-
-	const filePath = tanvir143Path.join(
-		require("os").tmpdir(),
-		`${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}.png`
-	);
-
-	await tanvirrRobotFs.writeFile(filePath, Buffer.from(imageResponse.data));
-	return filePath;
+  return saveImageResponse(response, "genx");
 }
 
-function tanvir143ParseCommand(args) {
-	const raw = Array.isArray(args) ? args.join(" ") : String(args || "");
+async function callHubEdit(baseURL, imageURL, prompt) {
+  const response = await axios.get(`${baseURL}/api/edit`, {
+    params: { img: imageURL, prompt },
+    responseType: "arraybuffer",
+    timeout: 180000,
+    validateStatus: status => status >= 200 && status < 500
+  });
 
-	const editMatch = raw.match(/^\+edit(\d+)(\+2)?(?:\s+|$)/i);
-	if (editMatch) {
-		return {
-			type: "edit",
-			id: Number(editMatch[1]),
-			twoImages: Boolean(editMatch[2]),
-			prompt: raw.slice(editMatch[0].length).trim()
-		};
-	}
+  if (response.status >= 400) {
+    throw new Error(`Edit API returned HTTP ${response.status}.`);
+  }
 
-	const generationMatch = raw.match(/^\+(\d+)(?:\s+|$)/);
-	if (generationMatch) {
-		return {
-			type: "generate",
-			id: Number(generationMatch[1]),
-			twoImages: false,
-			prompt: raw.slice(generationMatch[0].length).trim()
-		};
-	}
-
-	return null;
-}
-
-async function tanvir143GenerateImage(model, prompt, ratio, referenceImage) {
-	if (model.hub) {
-		const baseURL = await tanvir143GetHubBase();
-		const params = { prompt };
-
-		if (ratio) params.ratio = ratio;
-		if (referenceImage && model.image) params.image = referenceImage;
-
-		const response = await tanvir143Axios.get(baseURL + model.path, {
-			params,
-			responseType: "arraybuffer",
-			timeout: 180000,
-			validateStatus: status => status >= 200 && status < 300
-		});
-
-		return tanvir143SaveHubImage(response, "genx");
-	}
-
-	const result = await tanvir143Nkx.runJob({
-		prompt,
-		model: model.model,
-		ratio: ratio || undefined,
-		resolution: "2k",
-		wait: true,
-		image_urls: referenceImage ? [referenceImage] : undefined
-	});
-
-	const imageURL = typeof result === "string"
-		? result
-		: tanvir143GetImageUrl(result);
-
-	if (!imageURL) {
-		throw new Error("NKX generation result থেকে image URL পাওয়া যায়নি।");
-	}
-
-	return tanvir143Nkx.downloadToTemp(imageURL, "genx");
-}
-
-async function tanvir143EditImage(model, prompt, images, ratio) {
-	if (model.hub) {
-		if (!images.length) throw new Error("Classic Edit-এর জন্য একটি ছবি প্রয়োজন।");
-
-		const baseURL = await tanvir143GetHubBase();
-		const response = await tanvir143Axios.get(baseURL + "/api/edit", {
-			params: {
-				img: images[0],
-				prompt
-			},
-			responseType: "arraybuffer",
-			timeout: 180000,
-			validateStatus: status => status >= 200 && status < 300
-		});
-
-		return tanvir143SaveHubImage(response, "edited");
-	}
-
-	const result = await tanvir143Nkx.runJob({
-		prompt,
-		model: model.model,
-		image_urls: images,
-		resolution: "2k",
-		ratio: ratio || undefined,
-		wait: true
-	});
-
-	const imageURL = typeof result === "string"
-		? result
-		: tanvir143GetImageUrl(result);
-
-	if (!imageURL) {
-		throw new Error("NKX edit result থেকে image URL পাওয়া যায়নি।");
-	}
-
-	return tanvir143Nkx.downloadToTemp(imageURL, "edited");
+  return saveImageResponse(response, "genx-edit");
 }
 
 module.exports = {
-	config: {
-		name: "gen",
-		aliases: ["genx", "imgen", "imgedit"],
-		version: "1.0.0",
-		author: "Tanvir Ahmed (Tanvir143)",
-		cooldown: 10,
-		role: 0,
-		shortDescription: "Generate and edit images",
-		longDescription: "27 image generation models and 13 image editing models.",
-		category: "Users Cmd",
-		guide: {
-			en: "{pn} help\n{pn} +1 a cute cat\n{pn} +edit1 add sunglasses (reply to a photo)\n{pn} +edit2+2 combine two photos"
-		}
-	},
+  config: {
+    name: "gen",
+    aliases: ["genx", "imagegen"],
+    version: "1.0.0",
+    author: "Tanvir Ahmed (Tanvir143)",
+    cooldown: 6,
+    role: 0,
+    description: "Generate and edit images using available image models.",
+    category: "image",
+    guide: ".genx help | .genx +1 prompt | .genx +edit1 prompt"
+  },
 
-	/*
-	 * This hook remembers images only if the command loader calls onChat
-	 * for ordinary incoming messages. If your loader does not call it,
-	 * image history must be recorded by the event dispatcher.
-	 */
-	onChat: async function ({ event }) {
-		try {
-			tanvir143RememberImages(event);
-		} catch (error) {
-			console.error("[Tanvir143 genx history]", error.message);
-		}
-	},
+  onStart: async function ({ api, event, args }) {
+    const threadID = getThreadID(event);
+    const input = args.join(" ").trim();
 
-	onStart: async function ({ api, event, args, message }) {
-		const tanvir143ThreadID = event.threadID;
-		const tanvir143Text = Array.isArray(args) ? args.join(" ").trim() : "";
+    if (!threadID) return;
 
-		if (!tanvir143Text || /^help$/i.test(tanvir143Text)) {
-			return tanvir143Send(api, tanvir143Help(), tanvir143ThreadID);
-		}
+    if (!input || input.toLowerCase() === "help") {
+      return api.sendMessage(helpText(), threadID);
+    }
 
-		const tanvir143Parsed = tanvir143ParseCommand(args);
+    const editMatch = input.match(/^\+edit(\d+)(\+2)?(?:\s+|$)/i);
+    const genMatch = input.match(/^\+(\d+)(?:\s+|$)/);
 
-		if (!tanvir143Parsed) {
-			return tanvir143Send(
-				api,
-				"❌ সঠিক syntax ব্যবহার করো:\n" +
-				".genx +1 a cute cat\n" +
-				".genx +edit1 add sunglasses\n" +
-				".genx +edit2+2 combine two photos\n" +
-				".genx help",
-				tanvir143ThreadID
-			);
-		}
+    if (!editMatch && !genMatch) {
+      return api.sendMessage(
+        "❌ Invalid format.\nUse .genx help to see models and examples.",
+        threadID
+      );
+    }
 
-		if (!tanvir143Parsed.prompt) {
-			return tanvir143Send(api, "❌ Image prompt লিখো।", tanvir143ThreadID);
-		}
+    const isEdit = Boolean(editMatch);
+    const modelNumber = Number(isEdit ? editMatch[1] : genMatch[1]);
+    const models = isEdit ? EDIT_MODELS : GENERATE_MODELS;
+    const model = models[modelNumber - 1];
 
-		const tanvir143RatioMatch = tanvir143Parsed.prompt.match(/(?:^|\s)--ratio\s+([0-9:]+)/i);
-		const tanvir143Ratio = tanvir143RatioMatch ? tanvir143RatioMatch[1] : undefined;
-		const tanvir143Prompt = tanvir143Parsed.prompt
-			.replace(/(?:^|\s)--ratio\s+[0-9:]+/ig, " ")
-			.replace(/\s+/g, " ")
-			.trim();
+    if (!model) {
+      return api.sendMessage(
+        `❌ Invalid model number. Available: 1-${models.length}`,
+        threadID
+      );
+    }
 
-		if (!tanvir143Prompt) {
-			return tanvir143Send(api, "❌ Image prompt লিখো।", tanvir143ThreadID);
-		}
+    let prompt = input.replace(
+      isEdit ? /^\+edit\d+(?:\+2)?\s*/i : /^\+\d+\s*/,
+      ""
+    ).trim();
 
-		let tanvir143FilePath = null;
+    if (!prompt) {
+      return api.sendMessage("❌ Please provide a prompt.", threadID);
+    }
 
-		try {
-			if (tanvir143Parsed.type === "generate") {
-				const model = tanvir143GenerateModels[tanvir143Parsed.id - 1];
+    let filePath;
 
-				if (!model) {
-					return tanvir143Send(api, "❌ Generation model ID 1 থেকে 27 পর্যন্ত। .genx help দেখো।", tanvir143ThreadID);
-				}
+    try {
+      await api.sendMessage(
+        `Model Name: ${model.name}...`,
+        threadID
+      );
 
-				const tanvir143ReplyImages = tanvir143GetReplyImages(event);
-				const tanvir143History = tanvir143GetThreadHistory(tanvir143ThreadID);
-				const tanvir143Reference = tanvir143ReplyImages[0] ||
-					(tanvir143History.length ? tanvir143History[tanvir143History.length - 1].url : null);
+      if (!isEdit) {
+        if (model.hub) {
+          const baseURL = await getHubBaseURL();
+          filePath = await callHubGeneration(baseURL, model, prompt);
+        } else {
+          return api.sendMessage(
+            `⚠️ ${model.name} requires its NKX job API endpoint. This standalone file does not have that endpoint configured yet.`,
+            threadID
+          );
+        }
+      } else {
+        const images = getAttachments(event);
+        const maxImages = model.maxImages || 1;
 
-				if (model.image === false && tanvir143Reference) {
-					return tanvir143Send(api, `ℹ️ ${model.name} reference image support করে না।`, tanvir143ThreadID);
-				}
+        if (!images.length) {
+          return api.sendMessage(
+            "❌ Reply to a photo and use the edit command.",
+            threadID
+          );
+        }
 
-				await tanvir143Send(api, `⏳ Tanvir143 | ${model.name} দিয়ে image তৈরি হচ্ছে...`, tanvir143ThreadID);
+        if (model.hub) {
+          filePath = await callHubEdit(
+            await getHubBaseURL(),
+            images[0],
+            prompt
+          );
+        } else {
+          return api.sendMessage(
+            `⚠️ ${model.name} requires its NKX job API endpoint. This standalone file does not have that endpoint configured yet.`,
+            threadID
+          );
+        }
+      }
 
-				tanvir143FilePath = await tanvir143GenerateImage(
-					model,
-					tanvir143Prompt,
-					tanvir143Ratio,
-					model.image ? tanvir143Reference : null
-				);
-			} else {
-				const model = tanvir143EditModels[tanvir143Parsed.id - 1];
+      await api.sendMessage(
+        {
+          body: `✅ Sendig Your Image\n✅ Model: ${model.name}`,
+          attachment: fs.createReadStream(filePath)
+        },
+        threadID
+      );
+    } catch (error) {
+      console.error(`[${AUTHOR} GENX ERROR]`, error.message);
 
-				if (!model) {
-					return tanvir143Send(api, "❌ Edit model ID 1 থেকে 13 পর্যন্ত। .genx help দেখো।", tanvir143ThreadID);
-				}
-
-				let tanvir143Images = [];
-
-				// Photos attached to the command itself.
-				const tanvir143CurrentPhotos = tanvir143Nkx.photosOf(event.attachments || []);
-				for (const photo of tanvir143CurrentPhotos || []) {
-					const url = typeof photo === "string"
-						? photo
-						: photo && (photo.url || photo.src || photo.uri);
-					if (url) tanvir143Images.push(String(url));
-				}
-
-				// Photos in the message being replied to.
-				tanvir143Images.push(...tanvir143GetReplyImages(event));
-
-				// Explicit image URLs, if the command uses --img URL.
-				const tanvir143UrlMatches = tanvir143Parsed.prompt.match(/--img\s+(https?:\/\/\S+)/ig) || [];
-				for (const item of tanvir143UrlMatches) {
-					const match = item.match(/--img\s+(https?:\/\/\S+)/i);
-					if (match) tanvir143Images.push(match[1]);
-				}
-
-				// If two images are requested, use the recent images from this thread.
-				if (tanvir143Parsed.twoImages) {
-					const tanvir143History = tanvir143GetThreadHistory(tanvir143ThreadID);
-					for (let i = tanvir143History.length - 1; i >= 0; i--) {
-						tanvir143Images.push(tanvir143History[i].url);
-					}
-				}
-
-				tanvir143Images = tanvir143UniqueImages(tanvir143Images);
-
-				if (!tanvir143Images.length) {
-					return tanvir143Send(
-						api,
-						"❌ Edit করার জন্য একটি photo attach করো অথবা photo-তে reply দিয়ে command দাও।",
-						tanvir143ThreadID
-					);
-				}
-
-				if (tanvir143Parsed.twoImages && model.maxImages < 2) {
-					return tanvir143Send(
-						api,
-						`❌ ${model.name} একটিমাত্র ছবি নেয়। দুটি ছবি edit করতে .genx +edit2+2 ব্যবহার করো।`,
-						tanvir143ThreadID
-					);
-				}
-
-				const tanvir143Needed = tanvir143Parsed.twoImages ? 2 : 1;
-
-				if (tanvir143Images.length < tanvir143Needed) {
-					return tanvir143Send(
-						api,
-						`❌ দুটি ছবি পাওয়া যায়নি। একই গ্রুপে আগে দুটি photo পাঠাও, তারপর দ্বিতীয় photo-তে reply দিয়ে .genx +edit2+2 prompt ব্যবহার করো।`,
-						tanvir143ThreadID
-					);
-				}
-
-				tanvir143Images = tanvir143Images.slice(0, Math.min(tanvir143Needed, model.maxImages));
-
-				const tanvir143CleanPrompt = tanvir143Prompt
-					.replace(/(?:^|\s)--img\s+https?:\/\/\S+/ig, " ")
-					.replace(/\s+/g, " ")
-					.trim();
-
-				if (!tanvir143CleanPrompt) {
-					return tanvir143Send(api, "❌ কী edit করতে হবে prompt-এ লিখো।", tanvir143ThreadID);
-				}
-
-				await tanvir143Send(
-					api,
-					`⏳ Tanvir143 | ${model.name} দিয়ে ${tanvir143Images.length}টি ছবি edit হচ্ছে...`,
-					tanvir143ThreadID
-				);
-
-				tanvir143FilePath = await tanvir143EditImage(
-					model,
-					tanvir143CleanPrompt,
-					tanvir143Images,
-					tanvir143Ratio
-				);
-			}
-
-			if (!tanvir143FilePath || !(await tanvirrRobotFs.pathExists(tanvir143FilePath))) {
-				throw new Error("Generated image file পাওয়া যায়নি।");
-			}
-
-			await tanvir143Send(
-				api,
-				{
-					body: "✅ Tanvir143 | Image ready.",
-					attachment: tanvirrRobotFs.createReadStream(tanvir143FilePath)
-				},
-				tanvir143ThreadID
-			);
-		} catch (error) {
-			console.error("[Tanvir143 genx]", error && (error.stack || error.message) || error);
-
-			const detail = error && error.message ? error.message : "Unknown error";
-			await tanvir143Send(
-				api,
-				`❌ Image operation failed.\n${detail}`,
-				tanvir143ThreadID
-			);
-		} finally {
-			if (tanvir143FilePath) {
-				setTimeout(() => {
-					tanvirrRobotFs.remove(tanvir143FilePath).catch(() => {});
-				}, 20000);
-			}
-		}
-	}
+      await api.sendMessage(
+        `❌ ${isEdit ? "Image editing" : "Image generation"} failed.\nReason: ${error.message}`,
+        threadID
+      );
+    } finally {
+      if (filePath) {
+        setTimeout(() => {
+          fs.remove(filePath).catch(() => {});
+        }, 20000);
+      }
+    }
+  }
 };
