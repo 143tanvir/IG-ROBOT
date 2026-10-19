@@ -1,3 +1,4 @@
+
 /**
  * File Name: gcimg.js
  * ICA: igbot-api
@@ -41,12 +42,28 @@ function escapeXML(value = "") {
         .replace(/'/g, "&apos;");
 }
 
+// Convert Unicode mathematical/stylish letters to normal text.
+function normalizeGroupName(value) {
+    let name = String(value || "Instagram Group");
+
+    try {
+        name = name.normalize("NFKD");
+    } catch {}
+
+    return name
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[\u200B-\u200F\uFEFF]/g, "")
+        .replace(/\s+/g, " ")
+        .trim() || "Instagram Group";
+}
+
 function roundRect(x, y, w, h, r, fill, stroke = "none", sw = 1) {
     return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
 }
 
 function textWidth(value, font, size) {
     const layout = font.layout(String(value || ""));
+
     return layout.glyphs.reduce(
         (sum, glyph) => sum + glyph.advanceWidth,
         0
@@ -59,6 +76,7 @@ function makeText(value, x, baseline, size, color, bold = false, anchor = "start
     const layout = font.layout(content);
     const scale = size / font.unitsPerEm;
     let cursorX = x;
+
     const width = textWidth(content, font, size);
 
     if (anchor === "middle") cursorX -= width / 2;
@@ -87,14 +105,22 @@ function makeFittedText(value, x, baseline, maxWidth, maxSize, color, bold = fal
     let content = String(value || "");
     let size = maxSize;
 
-    while (content && textWidth(content, font, size) > maxWidth && size > 10) {
+    while (
+        content &&
+        textWidth(content, font, size) > maxWidth &&
+        size > 10
+    ) {
         size -= 1;
     }
 
     if (textWidth(content, font, size) > maxWidth) {
-        while (content.length > 3 && textWidth(content + "...", font, size) > maxWidth) {
+        while (
+            content.length > 3 &&
+            textWidth(content + "...", font, size) > maxWidth
+        ) {
             content = content.slice(0, -1);
         }
+
         content += "...";
     }
 
@@ -108,6 +134,7 @@ function getThreadInfo(api, threadID) {
         const done = (err, data) => {
             if (finished) return;
             finished = true;
+
             if (err) reject(err);
             else resolve(data);
         };
@@ -137,6 +164,7 @@ function getUserInfo(api, userID) {
         const done = (err, data) => {
             if (finished) return;
             finished = true;
+
             if (err) reject(err);
             else resolve(data);
         };
@@ -224,9 +252,7 @@ async function downloadBuffer(url, timeout = 10000) {
 
         const buffer = Buffer.from(response.data);
 
-        if (!buffer.length) return null;
-
-        return buffer;
+        return buffer.length ? buffer : null;
     } catch {
         return null;
     }
@@ -276,6 +302,7 @@ async function getUserAvatar(api, usersData, userID, initialInfo = {}) {
 
         if (fetched && typeof fetched === "object") {
             const user = fetched[String(userID)] || fetched;
+
             info = { ...user, ...info };
 
             for (const key of [
@@ -323,12 +350,15 @@ async function circleAvatar(buffer, size) {
 }
 
 async function createGroupCard(threadInfo, api, usersData) {
-    const threadName = String(threadInfo.threadName || "Instagram Group");
+    // Normalize stylish Unicode group names before rendering.
+    const threadName = normalizeGroupName(threadInfo.threadName);
+
     const participantIDs = [
         ...new Set(normalizeIDs(threadInfo.participantIDs))
     ];
 
     const adminIDs = normalizeIDs(threadInfo.adminIDs);
+
     const userInfoList = Array.isArray(threadInfo.userInfo)
         ? threadInfo.userInfo
         : [];
@@ -348,26 +378,26 @@ async function createGroupCard(threadInfo, api, usersData) {
 
     const members = [];
 
-    // No fixed member limit: only members with a real DP are included.
+    // Include members only when their profile picture is available.
     for (const id of participantIDs) {
-        let info = userInfoList.find(item =>
+        const info = userInfoList.find(item =>
             String(item.id || item.userID || item.uid || "") === id
         ) || {};
 
         try {
-            const result = await getUserAvatar(api, usersData, id, info);
+            const result = await getUserAvatar(
+                api,
+                usersData,
+                id,
+                info
+            );
 
-            // If the DP cannot be retrieved, omit this member entirely.
             if (!result || !result.avatar) continue;
-
-            info = result.info || info;
-
-            const username = getUsername(info);
 
             members.push({
                 id,
                 avatar: result.avatar,
-                username,
+                username: getUsername(result.info || info),
                 isAdmin: adminIDs.includes(id)
             });
         } catch (error) {
@@ -421,7 +451,16 @@ async function createGroupCard(threadInfo, api, usersData) {
         const y = GRID_Y + row * (CELL_H + GAP_Y);
 
         svg.push(
-            roundRect(x, y, CELL_W, CELL_H, 22, "url(#card)", "#29384e", 2)
+            roundRect(
+                x,
+                y,
+                CELL_W,
+                CELL_H,
+                22,
+                "url(#card)",
+                "#29384e",
+                2
+            )
         );
     }
 
@@ -460,7 +499,7 @@ async function createGroupCard(threadInfo, api, usersData) {
             );
         }
 
-        // Only username; never show the member's display name.
+        // Show username only, never the display name.
         if (member.username) {
             const usernameSVG = Buffer.from(`
                 <svg xmlns="http://www.w3.org/2000/svg" width="${CELL_W}" height="38">
@@ -507,12 +546,12 @@ module.exports = {
     config: {
         name: "gcimg",
         aliases: ["groupimage", "groupcard", "gc"],
-        version: "5.0.0",
+        version: "5.1.0",
         author: "Tanvir Ahmed (Tanvir143)",
         countDown: 10,
         role: 0,
         shortDescription: "Create a group member DP card",
-        longDescription: "Creates a group card with available member profile pictures and usernames.",
+        longDescription: "Creates a group card with member profile pictures and usernames.",
         category: "group",
         guide: "{pn}"
     },
@@ -527,10 +566,16 @@ module.exports = {
             const threadInfo = await getThreadInfo(api, threadID);
 
             if (!threadInfo) {
-                return message.reply("❌ Group information পাওয়া যায়নি।");
+                return message.reply(
+                    "❌ Group information পাওয়া যায়নি।"
+                );
             }
 
-            const image = await createGroupCard(threadInfo, api, usersData);
+            const image = await createGroupCard(
+                threadInfo,
+                api,
+                usersData
+            );
 
             filePath = path.join(
                 CACHE_DIR,
