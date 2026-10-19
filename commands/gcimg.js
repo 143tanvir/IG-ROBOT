@@ -25,7 +25,7 @@ return String(value)
 .replace(/&/g, "&")
 .replace(/</g, "<")
 .replace(/>/g, ">")
-.replace(/"/g, """)
+.replace(/"/g, "&quot;")
 .replace(/'/g, "'");
 }
 
