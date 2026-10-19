@@ -4,139 +4,133 @@
 * ICA: igbot-api
 * Author: Tanvir Ahmed (Tanvir143)
 * GitHub: www.github.com/143tanvir
-* Description: Group information image generator using Sharp.
+* Description: Group information image generator.
   */
 
 "use strict";
 
 const sharp = require("sharp");
-const axios = require("axios");
 
-const { resolveProfile } = require("../src/utils");
+const WIDTH = 1000;
+const HEIGHT = 620;
 
-const WIDTH = 1200;
-const MAX_MEMBERS = 40;
-
-function escapeXml(value = "") {
-return String(value)
-.replace(/&/g, "&")
-.replace(/</g, "<")
-.replace(/>/g, ">")
-.replace(/"/g, """)
-.replace(/'/g, "'");
+function xml(value) {
+let text = String(value == null ? "" : value);
+text = text.split("&").join("&");
+text = text.split("<").join("<");
+text = text.split(">").join(">");
+text = text.split('"').join(""");
+text = text.split("'").join("'");
+return text;
 }
 
 function getThreadInfo(api, threadID) {
 return new Promise((resolve, reject) => {
-try {
-const result = api.getThreadInfo(threadID, (err, info) => {
-if (err) return reject(err);
+api.getThreadInfo(threadID, (error, info) => {
+if (error) return reject(error);
 resolve(info);
 });
-
-  if (result && typeof result.then === "function") {
-    result.then(resolve).catch(reject);
-  }
-} catch (error) {
-  reject(error);
-}
-
 });
 }
 
 function getUserInfo(api, userID) {
 return new Promise((resolve) => {
-try {
-const result = api.getUserInfo(String(userID), (err, info) => {
-if (err || !info) return resolve(null);
-resolve(info[String(userID)] || info);
+api.getUserInfo(String(userID), (error, info) => {
+if (error || !info) return resolve(null);
+resolve(info[String(userID)] || null);
 });
-
-  if (result && typeof result.then === "function") {
-    result.then((info) => {
-      resolve(info?.[String(userID)] || info || null);
-    }).catch(() => resolve(null));
-  }
-} catch {
-  resolve(null);
-}
-
 });
 }
 
-async function downloadImage(url) {
-if (!url || typeof url !== "string") return null;
+function makeSvg(info, memberNames, adminCount) {
+const groupName = xml(info.threadName || "Group Information");
+const members = Array.isArray(info.participantIDs)
+? info.participantIDs
+: [];
 
-try {
-const response = await axios.get(url, {
-responseType: "arraybuffer",
-timeout: 10000,
-maxContentLength: 8 * 1024 * 1024,
-maxBodyLength: 8 * 1024 * 1024,
-validateStatus: (status) => status >= 200 && status < 300
-});
+const shownMembers = memberNames.slice(0, 12);
 
-return await sharp(Buffer.from(response.data))
-  .rotate()
-  .resize(180, 180, { fit: "cover" })
-  .png()
-  .toBuffer();
+const memberLines = shownMembers.map((member, index) => {
+const column = index < 6 ? 0 : 1;
+const row = index % 6;
+const x = column === 0 ? 65 : 525;
+const y = 330 + row * 42;
 
-} catch {
-return null;
-}
-}
+return `
+  <rect x="${x}" y="${y - 25}" width="410" height="35"
+    rx="10" fill="#222b3a"/>
+  <text x="${x + 14}" y="${y}"
+    font-family="Arial, sans-serif"
+    font-size="17" fill="#f5f7ff">
+    ${index + 1}. ${xml(member).slice(0, 35)}
+  </text>
+`;
 
-async function getAvatar(api, userID, event) {
-try {
-const profile = await resolveProfile(
-[String(userID)],
-{
-senderID: String(userID),
-threadID: event.threadID,
-mentions: {},
-messageReply: null
-},
-api
-);
+}).join("");
 
-const item = Array.isArray(profile) ? profile[0] : profile;
-const url =
-  item?.image ||
-  item?.avatar ||
-  item?.avatarUrl ||
-  item?.profilePicUrl ||
-  item?.photoUrl;
+return `
+<svg xmlns="http://www.w3.org/2000/svg"
+width="${WIDTH}" height="${HEIGHT}"
+viewBox="0 0 ${WIDTH} ${HEIGHT}">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#101827"/>
+<stop offset="100%" stop-color="#354363"/>
+</linearGradient>
+<linearGradient id="top" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0%" stop-color="#526caa"/>
+<stop offset="100%" stop-color="#8058a6"/>
+</linearGradient>
+</defs>
 
-if (url) {
-  const image = await downloadImage(url);
-  if (image) return image;
-}
+  <rect width="1000" height="620" rx="28" fill="url(#bg)"/>
+  <rect width="1000" height="205" rx="28" fill="url(#top)"/>
+  <rect y="175" width="1000" height="30" fill="url(#top)"/>
 
-} catch {}
+  <circle cx="105" cy="100" r="55" fill="#ffffff" opacity="0.16"/>
+  <text x="105" y="116" text-anchor="middle"
+    font-family="Arial, sans-serif"
+    font-size="43" font-weight="bold" fill="#ffffff">GC</text>
 
-const info = await getUserInfo(api, userID);
-const url =
-info?.thumbSrc ||
-info?.avatarUrl ||
-info?.profilePicUrl ||
-info?.photoUrl;
+  <text x="190" y="75" font-family="Arial, sans-serif"
+    font-size="19" fill="#e6eaff">GROUP INFORMATION</text>
+  <text x="190" y="120" font-family="Arial, sans-serif"
+    font-size="29" font-weight="bold" fill="#ffffff">
+    ${groupName.slice(0, 34)}
+  </text>
+  <text x="190" y="157" font-family="Arial, sans-serif"
+    font-size="17" fill="#f0eaff">IG-ROBOT | Tanvir143</text>
 
-return downloadImage(url);
-}
+  <rect x="50" y="225" width="280" height="70" rx="16" fill="#222b3a"/>
+  <rect x="360" y="225" width="280" height="70" rx="16" fill="#222b3a"/>
+  <rect x="670" y="225" width="280" height="70" rx="16" fill="#222b3a"/>
 
-function imageData(buffer) {
-return buffer
-? "data:image/png;base64,${buffer.toString("base64")}"
-: "";
-}
+  <text x="70" y="252" font-family="Arial, sans-serif"
+    font-size="15" fill="#b9c5df">TOTAL MEMBERS</text>
+  <text x="70" y="280" font-family="Arial, sans-serif"
+    font-size="27" font-weight="bold" fill="#ffffff">${members.length}</text>
 
-function createAvatarSvg(src, x, y, size, id) {
-if (!src) {
-return "<circle cx="${x + size / 2}" cy="${y + size / 2}" r="${size / 2}" fill="#303747"/> <text x="${x + size / 2}" y="${y + size / 2 + 10}" text-anchor="middle" font-size="28" fill="#ffffff">?</text>";
-}
+  <text x="380" y="252" font-family="Arial, sans-serif"
+    font-size="15" fill="#b9c5df">GROUP ADMINS</text>
+  <text x="380" y="280" font-family="Arial, sans-serif"
+    font-size="27" font-weight="bold" fill="#ffffff">${adminCount}</text>
 
-return "<defs> <clipPath id="avatar-${id}"> <circle cx="${x + size / 2}" cy="${y + size / 2}" r="${size / 2}"/> </clipPath> </defs> <image href="${src}" x="${x}" y="${y}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-${id})"/>";
+  <text x="690" y="252" font-family="Arial, sans-serif"
+    font-size="15" fill="#b9c5df">MEMBERS SHOWN</text>
+  <text x="690" y="280" font-family="Arial, sans-serif"
+    font-size="27" font-weight="bold" fill="#ffffff">${shownMembers.length}</text>
+
+  <text x="60" y="320" font-family="Arial, sans-serif"
+    font-size="18" font-weight="bold" fill="#ffffff">MEMBER LIST</text>
+
+  ${memberLines}
+
+  <text x="500" y="600" text-anchor="middle"
+    font-family="Arial, sans-serif"
+    font-size="15" fill="#c3cde0">Created by Tanvir143</text>
+</svg>
+
+`;
 }
 
 module.exports = {
@@ -150,245 +144,55 @@ cooldown: 10,
 role: 0
 },
 
-onStart: async function ({ message, event, api, usersData }) {
+onStart: async function ({ message, event, api }) {
 try {
-const threadID = event.threadID;
+if (!event || !event.threadID) {
+return message.reply("Group ID পাওয়া যায়নি।");
+}
 
-  if (!threadID) {
+  const info = await getThreadInfo(api, event.threadID);
+
+  if (!info) {
     return message.reply("Group information পাওয়া যায়নি।");
   }
 
-  const info = await getThreadInfo(api, threadID);
-
-  if (!info) {
-    return message.reply("Group information load করা যায়নি।");
-  }
-
-  const threadName = info.threadName || "Instagram Group";
   const participants = Array.isArray(info.participantIDs)
-    ? info.participantIDs.map(String)
+    ? info.participantIDs
     : [];
 
-  const adminIDs = new Set(
-    (info.adminIDs || []).map((admin) =>
-      String(admin.id || admin.userID || admin)
-    )
-  );
+  const admins = Array.isArray(info.adminIDs)
+    ? info.adminIDs
+    : [];
 
-  const members = participants.slice(0, MAX_MEMBERS);
-  const memberCount = participants.length;
-  const adminCount = adminIDs.size;
+  const adminCount = admins.length;
+  const selected = participants.slice(0, 12);
 
-  let groupImage = null;
-
-  const groupImageUrl =
-    info.imageSrc ||
-    info.imageUrl ||
-    info.threadImage ||
-    info.photoUrl;
-
-  if (groupImageUrl) {
-    groupImage = await downloadImage(groupImageUrl);
-  }
-
-  const avatarResults = await Promise.all(
-    members.map(async (uid) => {
-      let name = "";
-
-      try {
-        if (usersData && typeof usersData.getName === "function") {
-          name = await usersData.getName(uid);
-        }
-      } catch {}
-
-      if (!name) {
-        const userInfo = await getUserInfo(api, uid);
-        name =
-          userInfo?.name ||
-          userInfo?.fullName ||
-          `User ${uid}`;
-      }
-
-      const avatar = await getAvatar(api, uid, event);
-
-      return {
-        id: uid,
-        name: String(name || `User ${uid}`),
-        avatar: imageData(avatar),
-        isAdmin: adminIDs.has(uid)
-      };
+  const results = await Promise.all(
+    selected.map(async (id, index) => {
+      const user = await getUserInfo(api, id);
+      return user && user.name
+        ? user.name
+        : "Member " + (index + 1);
     })
   );
 
-  const cardWidth = WIDTH;
-  const padding = 50;
-  const avatarSize = 74;
-  const rowHeight = 105;
-  const columns = 2;
-  const columnWidth = (cardWidth - padding * 2) / columns;
-  const rows = Math.ceil(avatarResults.length / columns);
+  const svg = makeSvg(info, results, adminCount);
 
-  const memberStart = 440;
-  const footerHeight = 100;
-  const height = Math.max(
-    650,
-    memberStart + rows * rowHeight + footerHeight
-  );
-
-  const groupAvatar = imageData(groupImage);
-
-  const memberSvg = avatarResults.map((member, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    const x = padding + col * columnWidth;
-    const y = memberStart + row * rowHeight;
-
-    const safeName = escapeXml(member.name).slice(0, 34);
-    const safeID = escapeXml(member.id);
-    const avatar = createAvatarSvg(
-      member.avatar,
-      x,
-      y,
-      avatarSize,
-      index
-    );
-
-    return `
-      <rect x="${x}" y="${y}" width="${columnWidth - 14}"
-        height="88" rx="18" fill="#202633"
-        stroke="#343c4c" stroke-width="1"/>
-      ${avatar}
-      <text x="${x + avatarSize + 16}" y="${y + 32}"
-        font-size="22" font-weight="600" fill="#ffffff">
-        ${safeName}
-      </text>
-      <text x="${x + avatarSize + 16}" y="${y + 60}"
-        font-size="15" fill="#aeb8ca">
-        ID: ${safeID.slice(0, 22)}
-      </text>
-      ${
-        member.isAdmin
-          ? `<text x="${x + avatarSize + 16}" y="${y + 79}"
-              font-size="13" fill="#8bc7ff">ADMIN</text>`
-          : ""
-      }
-    `;
-  }).join("");
-
-  const groupAvatarSvg = groupAvatar
-    ? `
-      <defs>
-        <clipPath id="group-avatar-clip">
-          <circle cx="100" cy="100" r="82"/>
-        </clipPath>
-      </defs>
-      <image href="${groupAvatar}" x="18" y="18"
-        width="164" height="164"
-        preserveAspectRatio="xMidYMid slice"
-        clip-path="url(#group-avatar-clip)"/>
-      <circle cx="100" cy="100" r="84"
-        fill="none" stroke="#7c9cff" stroke-width="4"/>
-    `
-    : `
-      <circle cx="100" cy="100" r="82" fill="#303747"/>
-      <text x="100" y="115" text-anchor="middle"
-        font-size="48" fill="#ffffff">GC</text>
-    `;
-
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg"
-      xmlns:xlink="http://www.w3.org/1999/xlink"
-      width="${cardWidth}" height="${height}"
-      viewBox="0 0 ${cardWidth} ${height}">
-      <defs>
-        <linearGradient id="background" x1="0" y1="0"
-          x2="1" y2="1">
-          <stop offset="0%" stop-color="#111722"/>
-          <stop offset="100%" stop-color="#252d40"/>
-        </linearGradient>
-        <linearGradient id="header" x1="0" y1="0"
-          x2="1" y2="1">
-          <stop offset="0%" stop-color="#394b75"/>
-          <stop offset="100%" stop-color="#654e91"/>
-        </linearGradient>
-      </defs>
-
-      <rect width="100%" height="100%" rx="30"
-        fill="url(#background)"/>
-
-      <rect x="0" y="0" width="${cardWidth}" height="235"
-        rx="30" fill="url(#header)"/>
-      <rect x="0" y="205" width="${cardWidth}" height="30"
-        fill="url(#header)"/>
-
-      ${groupAvatarSvg}
-
-      <text x="220" y="78" font-size="20"
-        fill="#dce5ff">GROUP INFORMATION</text>
-
-      <text x="220" y="125" font-size="32"
-        font-weight="700" fill="#ffffff">
-        ${escapeXml(threadName).slice(0, 36)}
-      </text>
-
-      <text x="220" y="164" font-size="19"
-        fill="#e0e6f5">Powered by Tanvir143</text>
-
-      <rect x="50" y="265" width="340" height="115"
-        rx="22" fill="#202633"/>
-      <rect x="430" y="265" width="340" height="115"
-        rx="22" fill="#202633"/>
-      <rect x="810" y="265" width="340" height="115"
-        rx="22" fill="#202633"/>
-
-      <text x="75" y="310" font-size="19"
-        fill="#aeb8ca">TOTAL MEMBERS</text>
-      <text x="75" y="355" font-size="35"
-        font-weight="700" fill="#ffffff">${memberCount}</text>
-
-      <text x="455" y="310" font-size="19"
-        fill="#aeb8ca">GROUP ADMINS</text>
-      <text x="455" y="355" font-size="35"
-        font-weight="700" fill="#ffffff">${adminCount}</text>
-
-      <text x="835" y="310" font-size="19"
-        fill="#aeb8ca">DISPLAYED</text>
-      <text x="835" y="355" font-size="35"
-        font-weight="700" fill="#ffffff">${members.length}</text>
-
-      <text x="50" y="418" font-size="24"
-        font-weight="700" fill="#ffffff">GROUP MEMBERS</text>
-
-      ${memberSvg}
-
-      ${
-        memberCount > MAX_MEMBERS
-          ? `<text x="50" y="${memberStart + rows * rowHeight + 12}"
-              font-size="17" fill="#c3cde0">
-              Showing ${MAX_MEMBERS} of ${memberCount} members
-            </text>`
-          : ""
-      }
-
-      <text x="${cardWidth / 2}" y="${height - 35}"
-        text-anchor="middle" font-size="17"
-        fill="#aeb8ca">IG-ROBOT • Tanvir143</text>
-    </svg>
-  `;
-
-  const card = await sharp(Buffer.from(svg))
+  const imageBuffer = await sharp(Buffer.from(svg))
     .png()
     .toBuffer();
 
   return message.reply({
-    body: `🖼️ ${threadName}\n👥 Members: ${memberCount}\n👑 Admins: ${adminCount}`,
-    attachment: card
+    body:
+      "🖼️ " + (info.threadName || "Group") +
+      "\n👥 Members: " + participants.length +
+      "\n👑 Admins: " + adminCount,
+    attachment: imageBuffer
   });
 } catch (error) {
   console.error("[gcimg] Error:", error);
-
   return message.reply(
-    "❌ Group image তৈরি করা যায়নি। Console log check করো।"
+    "❌ Group image তৈরি করা যায়নি। Railway console-এর error দেখো।"
   );
 }
 
