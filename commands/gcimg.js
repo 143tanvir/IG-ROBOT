@@ -25,7 +25,7 @@ return String(value)
 .replace(/&/g, "&")
 .replace(/</g, "<")
 .replace(/>/g, ">")
-.replace(/"/g, "&quot;")
+.replace(/"/g, """)
 .replace(/'/g, "'");
 }
 
@@ -185,7 +185,9 @@ return Buffer.from("<svg xmlns="http://www.w3.org/2000/svg" width="${size}" heig
 
 async function circleAvatar(buffer, size) {
 const resized = await sharp(buffer)
-.resize(size, size, { fit: "cover" })
+.resize(size, size, {
+fit: "cover"
+})
 .png()
 .toBuffer();
 
@@ -198,7 +200,12 @@ const mask = Buffer.from(`
 `);
 
 return sharp(resized)
-    .composite([{ input: mask, blend: "dest-in" }])
+    .composite([
+        {
+            input: mask,
+            blend: "dest-in"
+        }
+    ])
     .png()
     .toBuffer();
 
@@ -236,7 +243,6 @@ const adminCount = adminIDs.length;
 
 const groupAvatarSize = 140;
 const avatarSize = 88;
-
 const columns = 6;
 const cellW = 205;
 const cellH = 122;
@@ -244,7 +250,9 @@ const gapX = 24;
 const gapY = 16;
 const gridStartY = 320;
 
-const gridWidth = columns * cellW + (columns - 1) * gapX;
+const gridWidth =
+    columns * cellW + (columns - 1) * gapX;
+
 const startX = (WIDTH - gridWidth) / 2;
 
 const safeGroupName = threadName.length > 34
@@ -276,8 +284,10 @@ svg.push(`
         </defs>
 
         <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
+
         <circle cx="1480" cy="40" r="300"
                 fill="#22d3ee" opacity="0.06"/>
+
         <circle cx="40" cy="1110" r="270"
                 fill="#a3e635" opacity="0.05"/>
 
@@ -344,7 +354,9 @@ for (let i = 0; i < members.length; i++) {
     const row = Math.floor(i / columns);
     const col = i % columns;
 
-    const centerX = startX + col * (cellW + gapX) + cellW / 2;
+    const centerX =
+        startX + col * (cellW + gapX) + cellW / 2;
+
     const cardY = gridStartY + row * (cellH + gapY);
 
     svg.push(roundRect(
@@ -369,22 +381,16 @@ const groupImage = await prepareAvatar(
     groupAvatarSize
 );
 
-if (groupImage) {
-    overlays.push({
-        input: await circleAvatar(groupImage, groupAvatarSize),
-        left: 100,
-        top: 115
-    });
-} else {
-    overlays.push({
-        input: await circleAvatar(
-            fallbackAvatar(groupAvatarSize),
-            groupAvatarSize
-        ),
-        left: 100,
-        top: 115
-    });
-}
+const groupAvatar = await circleAvatar(
+    groupImage || fallbackAvatar(groupAvatarSize),
+    groupAvatarSize
+);
+
+overlays.push({
+    input: groupAvatar,
+    left: 100,
+    top: 115
+});
 
 const adminRings = [];
 
@@ -394,22 +400,21 @@ for (let i = 0; i < members.length; i++) {
     const row = Math.floor(i / columns);
     const col = i % columns;
 
-    const centerX = startX + col * (cellW + gapX) + cellW / 2;
-    const centerY = gridStartY + row * (cellH + gapY) + cellH / 2;
+    const centerX =
+        startX + col * (cellW + gapX) + cellW / 2;
+
+    const centerY =
+        gridStartY + row * (cellH + gapY) + cellH / 2;
 
     const x = Math.round(centerX - avatarSize / 2);
     const y = Math.round(centerY - avatarSize / 2);
 
-    let avatar = await getUserAvatar(
+    const avatar = await getUserAvatar(
         api,
         usersData,
         member.id,
         member.info
-    );
-
-    if (!avatar) {
-        avatar = fallbackAvatar(avatarSize);
-    }
+    ) || fallbackAvatar(avatarSize);
 
     overlays.push({
         input: await circleAvatar(avatar, avatarSize),
@@ -428,8 +433,6 @@ for (let i = 0; i < members.length; i++) {
     }
 }
 
-const finalLayers = [...overlays];
-
 if (adminRings.length) {
     const ringSVG = Buffer.from(`
         <svg xmlns="http://www.w3.org/2000/svg"
@@ -439,7 +442,7 @@ if (adminRings.length) {
         </svg>
     `);
 
-    finalLayers.push({
+    overlays.push({
         input: ringSVG,
         left: 0,
         top: 0
@@ -447,7 +450,7 @@ if (adminRings.length) {
 }
 
 return sharp(base)
-    .composite(finalLayers)
+    .composite(overlays)
     .png()
     .toBuffer();
 
@@ -457,7 +460,7 @@ module.exports = {
 config: {
 name: "gcimg",
 aliases: ["groupimage", "groupcard", "gc"],
-version: "4.0.0",
+version: "4.0.1",
 author: "Tanvir Ahmed (Tanvir143)",
 countDown: 10,
 role: 0,
