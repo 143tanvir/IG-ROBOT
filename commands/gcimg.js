@@ -1,260 +1,548 @@
+/**
+
+* File Name: gcimg.js
+* ICA: igbot-api
+* Author: Tanvir Ahmed (Tanvir143)
+* GitHub: www.github.com/143tanvir
+* Note: Group card generated using Sharp and SVG.
+  */
+
 "use strict";
 
-const Canvas=require("canvas");
-const axios=require("axios");
-const fs=require("fs-extra");
-const path=require("path");
+const sharp = require("sharp");
+const axios = require("axios");
+const { resolveProfile } = require("../src/utils");
 
-const W=1800,H=1150,CACHE=path.join(__dirname,"cache");
-fs.ensureDirSync(CACHE);
+const WIDTH = 1800;
+const CACHE = new Map();
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
-try{
-	Canvas.registerFont(`${__dirname}/assets/font/BeVietnamPro-SemiBold.ttf`,{family:"BeVietnam"});
-	Canvas.registerFont(`${__dirname}/assets/font/BeVietnamPro-Bold.ttf`,{family:"BeVietnamBold"});
-}catch{}
+function escapeXML(value) {
+return String(value ?? "")
+.replace(/&/g, "&")
+.replace(/</g, "<")
+.replace(/>/g, ">")
+.replace(/"/g, """)
+.replace(/'/g, "'");
+}
 
-const cache=new Map();
+function cleanName(value, max = 30) {
+let name = String(value || "Unknown")
+.replace(/\s+/g, " ")
+.trim();
 
-async function getImage(url){
-	if(!url)return null;
-	if(cache.has(url))return cache.get(url);
-	try{
-		const r=await axios.get(url,{
-			responseType:"arraybuffer",timeout:15000,
-			headers:{"User-Agent":"Mozilla/5.0","Accept":"image/*"},
-			maxContentLength:8*1024*1024
+if (name.length > max) {
+	name = name.slice(0, max - 1) + "…";
+}
+
+return name || "Unknown";
+
+}
+
+function getThreadInfo(api, threadID) {
+return new Promise((resolve, reject) => {
+api.getThreadInfo(threadID, (error, info) => {
+if (error) return reject(error);
+if (!info) {
+return reject(new Error("Group information পাওয়া যায়নি।"));
+}
+resolve(info);
+});
+});
+}
+
+function getUserInfo(api, uid) {
+return new Promise((resolve, reject) => {
+api.getUserInfo(uid, (error, result) => {
+if (error) return reject(error);
+resolve(result?.[uid] || result?.[String(uid)] || {});
+});
+});
+}
+
+async function downloadImage(url) {
+if (!url || typeof url !== "string") return null;
+
+if (CACHE.has(url)) {
+	return CACHE.get(url);
+}
+
+try {
+	const response = await axios.get(url, {
+		responseType: "arraybuffer",
+		timeout: 15000,
+		maxRedirects: 5,
+		maxContentLength: MAX_IMAGE_SIZE,
+		headers: {
+			"User-Agent": "Mozilla/5.0",
+			"Accept": "image/*"
+		},
+		validateStatus: status => status >= 200 && status < 300
+	});
+
+	const buffer = Buffer.from(response.data);
+
+	if (!buffer.length || buffer.length > MAX_IMAGE_SIZE) {
+		return null;
+	}
+
+	const image = await sharp(buffer)
+		.rotate()
+		.resize(500, 500, {
+			fit: "cover",
+			withoutEnlargement: true
+		})
+		.png()
+		.toBuffer();
+
+	if (CACHE.size >= 200) {
+		CACHE.delete(CACHE.keys().next().value);
+	}
+
+	CACHE.set(url, image);
+	return image;
+} catch {
+	return null;
+}
+
+}
+
+async function getAvatar(api, usersData, uid) {
+try {
+if (typeof usersData?.getAvatarUrl === "function") {
+const url = await usersData.getAvatarUrl(uid);
+const image = await downloadImage(url);
+if (image) return image;
+}
+} catch {}
+
+try {
+	const profile = await resolveProfile(
+		[String(uid)],
+		{
+			senderID: String(uid),
+			mentions: {},
+			messageReply: null
+		},
+		api
+	);
+
+	const image = await downloadImage(
+		profile?.profilePicture
+	);
+
+	if (image) return image;
+} catch {}
+
+try {
+	const info = await getUserInfo(api, String(uid));
+
+	const image = await downloadImage(
+		info?.thumbSrc ||
+		info?.profilePic ||
+		info?.photoUrl
+	);
+
+	if (image) return image;
+} catch {}
+
+return null;
+
+}
+
+async function getMemberData(api, usersData, ids, adminIDs) {
+return Promise.all(ids.map(async uid => {
+const id = String(uid);
+let name = "Unknown";
+
+	try {
+		const data = await usersData?.get(id);
+		name = data?.name || data?.userName || name;
+	} catch {}
+
+	let image = await getAvatar(api, usersData, id);
+
+	if (name === "Unknown" || !name) {
+		try {
+			const data = await getUserInfo(api, id);
+			name = data?.name || data?.firstName || name;
+		} catch {}
+	}
+
+	return {
+		id,
+		name: cleanName(name, 36),
+		admin: adminIDs.has(id),
+		image
+	};
+}));
+
+}
+
+function imageElement(image, x, y, size, clipID) {
+if (!image) return "";
+
+return `
+	<image
+		x="${x - size / 2}"
+		y="${y - size / 2}"
+		width="${size}"
+		height="${size}"
+		href="data:image/png;base64,${image.toString("base64")}"
+		clip-path="url(#${clipID})"
+		preserveAspectRatio="xMidYMid slice"
+	/>
+`;
+
+}
+
+function avatarSVG(user, x, y, radius, clipID, index) {
+const size = radius * 2;
+const name = escapeXML(user.name);
+
+return `
+	<defs>
+		<clipPath id="${clipID}">
+			<circle cx="${x}" cy="${y}" r="${radius}"/>
+		</clipPath>
+	</defs>
+
+	<circle cx="${x}" cy="${y}" r="${radius + 7}"
+		fill="none"
+		stroke="${user.admin ? "#FFD66B" : "#7CFF6B"}"
+		stroke-width="3"/>
+
+	<circle cx="${x}" cy="${y}" r="${radius}"
+		fill="#101D25"/>
+
+	${imageElement(user.image, x, y, size, clipID)}
+
+	${!user.image ? `
+		<text x="${x}" y="${y + 10}"
+			fill="#FFFFFF"
+			font-size="${Math.max(18, radius * 0.8)}"
+			text-anchor="middle"
+			font-family="sans-serif"
+			font-weight="bold">
+			${escapeXML((user.name || "?").charAt(0).toUpperCase())}
+		</text>
+	` : ""}
+
+	<text x="${x}" y="${y + radius + 28}"
+		fill="#FFFFFF"
+		font-size="${index.fontSize}"
+		text-anchor="middle"
+		font-family="sans-serif"
+		font-weight="600">
+		${name}
+	</text>
+`;
+
+}
+
+async function buildCard(api, usersData, threadID) {
+const info = await getThreadInfo(api, threadID);
+
+const ids = [
+	...new Set((info.participantIDs || []).map(String))
+];
+
+if (!ids.length) {
+	throw new Error("Group member পাওয়া যায়নি।");
+}
+
+const adminIDs = new Set(
+	(info.adminIDs || []).map(item =>
+		String(item.id || item)
+	)
+);
+
+const users = await getMemberData(
+	api,
+	usersData,
+	ids,
+	adminIDs
+);
+
+const admins = users.filter(user => user.admin);
+const members = users.filter(user => !user.admin);
+
+const groupName = cleanName(
+	info.threadName || info.name || "Group Chat",
+	55
+);
+
+const groupImage = await downloadImage(
+	info.imageSrc || info.imageUrl
+);
+
+const adminColumns = Math.max(
+	1,
+	Math.min(8, admins.length || 1)
+);
+
+const adminRows = Math.max(
+	1,
+	Math.ceil(admins.length / adminColumns)
+);
+
+const adminCellHeight = 125;
+const adminHeight = 100 + adminRows * adminCellHeight;
+
+const memberColumns =
+	members.length <= 2 ? 2 :
+	members.length <= 6 ? 3 :
+	members.length <= 12 ? 4 :
+	members.length <= 24 ? 6 :
+	members.length <= 48 ? 8 :
+	members.length <= 100 ? 10 : 12;
+
+const memberRows = Math.max(
+	1,
+	Math.ceil(members.length / memberColumns)
+);
+
+const memberCellHeight = 175;
+const memberStart = 430 + adminHeight;
+const footerHeight = 110;
+
+const height = Math.min(
+	16000,
+	memberStart + memberRows * memberCellHeight + footerHeight
+);
+
+const cellWidth = (WIDTH - 100) / memberColumns;
+const memberRadius = Math.max(
+	23,
+	Math.min(55, cellWidth * 0.25)
+);
+
+const parts = [];
+
+parts.push(`
+	<svg xmlns="http://www.w3.org/2000/svg"
+		width="${WIDTH}" height="${height}"
+		viewBox="0 0 ${WIDTH} ${height}">
+
+		<defs>
+			<linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+				<stop offset="0%" stop-color="#02090B"/>
+				<stop offset="50%" stop-color="#071B22"/>
+				<stop offset="100%" stop-color="#10102A"/>
+			</linearGradient>
+
+			<linearGradient id="border" x1="0" y1="0" x2="1" y2="1">
+				<stop offset="0%" stop-color="#7CFF6B"/>
+				<stop offset="50%" stop-color="#3CF4FF"/>
+				<stop offset="100%" stop-color="#FFD66B"/>
+			</linearGradient>
+
+			<radialGradient id="glow">
+				<stop offset="0%" stop-color="#20DDA0" stop-opacity=".28"/>
+				<stop offset="100%" stop-color="#20DDA0" stop-opacity="0"/>
+			</radialGradient>
+		</defs>
+
+		<rect width="${WIDTH}" height="${height}" fill="url(#background)"/>
+		<circle cx="250" cy="180" r="500" fill="url(#glow)"/>
+		<circle cx="1550" cy="250" r="550" fill="url(#glow)"/>
+
+		<rect x="20" y="20" width="${WIDTH - 40}" height="${height - 40}"
+			rx="35" fill="none" stroke="url(#border)" stroke-width="3"/>
+
+		<text x="100" y="100" fill="#7CFF6B"
+			font-size="22" font-family="sans-serif" font-weight="bold">
+			TANVIR143 • GROUP COMMUNITY
+		</text>
+`);
+
+// Group avatar
+if (groupImage) {
+	parts.push(`
+		<defs>
+			<clipPath id="groupAvatar">
+				<circle cx="150" cy="225" r="72"/>
+			</clipPath>
+		</defs>
+
+		<circle cx="150" cy="225" r="82"
+			fill="none" stroke="#3CF4FF" stroke-width="4"/>
+
+		${imageElement(groupImage, 150, 225, 144, "groupAvatar")}
+	`);
+} else {
+	parts.push(`
+		<circle cx="150" cy="225" r="78"
+			fill="#10232B" stroke="#3CF4FF" stroke-width="4"/>
+
+		<text x="150" y="240" text-anchor="middle"
+			font-size="38" fill="#FFFFFF" font-family="sans-serif">GC</text>
+	`);
+}
+
+parts.push(`
+	<text x="275" y="205" fill="#FFFFFF"
+		font-size="48" font-family="sans-serif" font-weight="bold">
+		${escapeXML(groupName)}
+	</text>
+
+	<text x="278" y="255" fill="#7CFF6B"
+		font-size="25" font-family="sans-serif">
+		${users.length} MEMBERS  •  ${admins.length} ADMINS
+	</text>
+
+	<text x="278" y="295" fill="#3CF4FF"
+		font-size="17" font-family="sans-serif">
+		GROUP COMMUNITY
+	</text>
+
+	<rect x="65" y="335" width="${WIDTH - 130}" height="2"
+		fill="#3CF4FF" opacity=".55"/>
+
+	<text x="80" y="390" fill="#FFD66B"
+		font-size="30" font-family="sans-serif" font-weight="bold">
+		GROUP ADMINS • ${admins.length}
+	</text>
+`);
+
+// Admin grid
+for (let i = 0; i < admins.length; i++) {
+	const row = Math.floor(i / adminColumns);
+	const col = i % adminColumns;
+
+	const spacing = (WIDTH - 200) / adminColumns;
+	const x = 100 + spacing * (col + 0.5);
+	const y = 445 + row * adminCellHeight;
+
+	parts.push(avatarSVG(
+		admins[i],
+		x,
+		y,
+		36,
+		`adminClip${i}`,
+		{ fontSize: 16 }
+	));
+}
+
+const memberTitleY = memberStart - 35;
+
+parts.push(`
+	<rect x="65" y="${memberTitleY - 38}"
+		width="${WIDTH - 130}" height="2"
+		fill="#3CF4FF" opacity=".4"/>
+
+	<text x="80" y="${memberTitleY}"
+		fill="#FFFFFF" font-size="30"
+		font-family="sans-serif" font-weight="bold">
+		GROUP MEMBERS • ${members.length}
+	</text>
+`);
+
+// Member grid
+for (let i = 0; i < members.length; i++) {
+	const row = Math.floor(i / memberColumns);
+	const col = i % memberColumns;
+
+	const x = 50 + cellWidth * (col + 0.5);
+	const y = memberStart + row * memberCellHeight + 55;
+
+	const boxWidth = cellWidth - 12;
+
+	parts.push(`
+		<rect x="${x - boxWidth / 2}"
+			y="${y - 52}"
+			width="${boxWidth}"
+			height="155"
+			rx="16"
+			fill="#FFFFFF" fill-opacity=".035"
+			stroke="#3CF4FF" stroke-opacity=".16"/>
+	`);
+
+	parts.push(avatarSVG(
+		members[i],
+		x,
+		y,
+		memberRadius,
+		`memberClip${i}`,
+		{
+			fontSize: members.length > 60 ? 12 :
+				members.length > 25 ? 14 : 17
+		}
+	));
+}
+
+parts.push(`
+	<rect x="65" y="${height - 80}"
+		width="${WIDTH - 130}" height="1"
+		fill="#3CF4FF" opacity=".35"/>
+
+	<text x="80" y="${height - 45}"
+		fill="#7CFF6B" font-size="17"
+		font-family="sans-serif">
+		GROUP COMMUNITY
+	</text>
+
+	<text x="${WIDTH - 80}" y="${height - 45}"
+		text-anchor="end" fill="#7CFF6B"
+		font-size="17" font-family="sans-serif">
+		Powered By Tanvir143
+	</text>
+</svg>
+`);
+
+const svg = Buffer.from(parts.join("\n"));
+
+return sharp(svg, {
+	limitInputPixels: 100000000
+})
+	.png()
+	.toBuffer();
+
+}
+
+module.exports = {
+config: {
+name: "gcimg",
+aliases: ["groupimage", "groupcard", "gc"],
+version: "14.0.0",
+author: "Tanvir143",
+countDown: 5,
+role: 0,
+category: "Users Cmd",
+shortDescription: "Generate a group member card",
+longDescription: "Shows group photo, name, admins and members.",
+guide: {
+en: "{pn}"
+}
+},
+
+onStart: async function ({
+	message,
+	event,
+	api,
+	usersData
+}) {
+	try {
+		const threadID = String(event.threadID);
+
+		const card = await buildCard(
+			api,
+			usersData,
+			threadID
+		);
+
+		return message.reply({
+			body: "🖼️ Group Community Card\n\nPowered By Tanvir143",
+			attachment: card
 		});
-		const img=await Canvas.loadImage(Buffer.from(r.data));
-		cache.set(url,img);return img;
-	}catch{return null}
+	} catch (error) {
+		console.error("[GCIMG ERROR]", error);
+
+		return message.reply(
+			"❌ Group card তৈরি করা যায়নি।\n\n" +
+			(error.message || "Unknown error")
+		);
+	}
 }
 
-function round(c,x,y,w,h,r){
-	c.beginPath();c.moveTo(x+r,y);
-	c.arcTo(x+w,y,x+w,y+h,r);
-	c.arcTo(x+w,y+h,x,y+h,r);
-	c.arcTo(x,y+h,x,y,r);
-	c.arcTo(x,y,x+w,y,r);c.closePath();
-}
-
-function avatar(c,img,x,y,r){
-	c.save();c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.clip();
-	if(img)c.drawImage(img,x-r,y-r,r*2,r*2);
-	else{
-		c.fillStyle="#111a1d";c.fill();
-		c.fillStyle="#fff";c.font=`bold ${Math.max(18,r*.55)}px BeVietnamBold`;
-		c.textAlign="center";c.textBaseline="middle";c.fillText("?",x,y);
-	}
-	c.restore();
-}
-
-function fit(c,name,max,maxF,min=8){
-	name=String(name||"Unknown").trim();
-	for(let s=maxF;s>=min;s--){
-		c.font=`bold ${s}px BeVietnamBold`;
-		if(c.measureText(name).width<=max)return name;
-	}
-	c.font=`bold ${min}px BeVietnamBold`;
-	let o="";
-	for(const ch of name){
-		if(c.measureText(o+ch+"…").width>max)break;
-		o+=ch;
-	}
-	return o+"…";
-}
-
-async function userImg(api,ud,uid){
-	try{
-		const i=await getImage(await ud.getAvatarUrl(uid));
-		if(i)return i;
-	}catch{}
-	try{
-		const d=await new Promise((res,rej)=>api.getUserInfo(uid,(e,r)=>e?rej(e):res(r)));
-		return getImage(d?.[uid]?.thumbSrc);
-	}catch{return null}
-}
-
-async function buildCard(api,ud,threadID){
-	const info=await api.getThreadInfo(threadID);
-	const ids=info.participantIDs||[];
-	const adminsID=new Set((info.adminIDs||[]).map(String));
-
-	const users=await Promise.all(ids.map(async uid=>{
-		let name="Unknown";
-		try{name=(await ud.get(uid))?.name||name}catch{}
-		if(name==="Unknown")try{
-			const d=await new Promise((res,rej)=>api.getUserInfo(uid,(e,r)=>e?rej(e):res(r)));
-			name=d?.[uid]?.name||name;
-		}catch{}
-		return{id:String(uid),name:String(name).trim()||"Unknown",admin:adminsID.has(String(uid))};
-	}));
-
-	const admins=users.filter(x=>x.admin),members=users.filter(x=>!x.admin);
-	const [adminImgs,memberImgs]=await Promise.all([
-		Promise.all(admins.map(x=>userImg(api,ud,x.id))),
-		Promise.all(members.map(x=>userImg(api,ud,x.id)))
-	]);
-
-	const c=Canvas.createCanvas(W,H),ctx=c.getContext("2d");
-	const G="#7CFF6B",CY="#3CF4FF",GD="#FFD66B",WH="#FFF";
-
-	/* BACKGROUND */
-	const bg=ctx.createLinearGradient(0,0,W,H);
-	bg.addColorStop(0,"#02090B");bg.addColorStop(.45,"#041719");bg.addColorStop(1,"#071128");
-	ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-
-	for(const [x,y,r,col] of [
-		[280,180,700,"rgba(24,230,138,.18)"],
-		[1550,230,650,"rgba(60,244,255,.14)"]
-	]){
-		const g=ctx.createRadialGradient(x,y,10,x,y,r);
-		g.addColorStop(0,col);g.addColorStop(.5,col.replace(".18",".05").replace(".14",".04"));
-		g.addColorStop(1,"rgba(0,0,0,0)");
-		ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-	}
-
-	/* FRAME */
-	ctx.save();ctx.shadowColor="rgba(60,244,255,.35)";ctx.shadowBlur=28;
-	ctx.strokeStyle="rgba(60,244,255,.65)";ctx.lineWidth=3;
-	round(ctx,18,18,W-36,H-36,34);ctx.stroke();ctx.restore();
-	ctx.strokeStyle="rgba(255,214,107,.25)";ctx.lineWidth=1;
-	round(ctx,28,28,W-56,H-56,28);ctx.stroke();
-
-	/* GROUP */
-	const gx=155,gy=150;
-	const gi=await getImage(info.imageSrc||info.imageUrl);
-
-	ctx.save();ctx.shadowColor="rgba(124,255,107,.95)";ctx.shadowBlur=38;
-	ctx.strokeStyle=G;ctx.lineWidth=5;ctx.beginPath();ctx.arc(gx,gy,88,0,Math.PI*2);ctx.stroke();ctx.restore();
-
-	ctx.strokeStyle="rgba(60,244,255,.75)";ctx.lineWidth=2;
-	ctx.beginPath();ctx.arc(gx,gy,98,0,Math.PI*2);ctx.stroke();
-	avatar(ctx,gi,gx,gy,80);
-
-	let gn=info.threadName||"Group Chat";
-	ctx.textAlign="left";ctx.font="bold 46px BeVietnamBold";
-	if(ctx.measureText(gn).width>620)gn=fit(ctx,gn,620,46,28);
-	ctx.fillStyle=WH;ctx.fillText(gn,280,135);
-	ctx.fillStyle=G;ctx.font="bold 21px BeVietnamBold";
-	ctx.fillText(`${users.length} MEMBERS  •  ${admins.length} ADMINS`,280,178);
-	ctx.fillStyle="rgba(60,244,255,.60)";ctx.font="bold 13px BeVietnamBold";
-	ctx.fillText("GROUP COMMUNITY",280,211);
-
-	/* ADMIN PANEL */
-	const px=900,py=50,pw=820,ph=255;
-	ctx.fillStyle="rgba(255,255,255,.035)";round(ctx,px,py,pw,ph,28);ctx.fill();
-	ctx.strokeStyle="rgba(255,214,107,.34)";ctx.lineWidth=2;ctx.stroke();
-
-	ctx.fillStyle=GD;ctx.textAlign="center";ctx.font="bold 25px BeVietnamBold";
-	ctx.fillText(`ADMIN  •  ${admins.length}`,px+pw/2,py+38);
-
-	if(admins.length){
-		const cols=admins.length<=3?admins.length:6,rows=Math.ceil(admins.length/cols);
-		const top=py+62,bottom=py+ph-10,rowH=(bottom-top)/rows;
-		const gapX=Math.min(175,(pw-70)/cols);
-		const startX=px+pw/2-(cols-1)*gapX/2;
-
-		for(let i=0;i<admins.length;i++){
-			const u=admins[i],col=i%cols,row=Math.floor(i/cols);
-			const x=startX+col*gapX,y=top+row*rowH+rowH/2;
-			let r=admins.length<=3?52:admins.length<=6?42:admins.length<=12?31:24;
-			r=Math.max(18,Math.min(r,rowH*.30,gapX*.30));
-
-			ctx.save();ctx.shadowColor="rgba(255,214,107,.85)";ctx.shadowBlur=20;
-			ctx.strokeStyle=GD;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,r+4,0,Math.PI*2);ctx.stroke();ctx.restore();
-			avatar(ctx,adminImgs[i],x,y,r);
-
-			const nf=r>=45?14:r>=35?13:r>=27?11:9;
-			ctx.fillStyle=WH;ctx.textAlign="center";ctx.font=`bold ${nf}px BeVietnamBold`;
-			ctx.fillText(fit(ctx,u.name,Math.max(55,gapX-8),nf,7),x,y+r+19);
-		}
-	}
-
-	/* DIVIDER */
-	ctx.save();ctx.shadowColor="rgba(60,244,255,.55)";ctx.shadowBlur=12;
-	ctx.strokeStyle="rgba(60,244,255,.55)";ctx.lineWidth=2;
-	ctx.beginPath();ctx.moveTo(75,320);ctx.lineTo(W-75,320);ctx.stroke();ctx.restore();
-
-	/* MEMBER TITLE */
-	ctx.textAlign="left";ctx.fillStyle=WH;ctx.font="bold 25px BeVietnamBold";
-	ctx.fillText(`GROUP MEMBERS  •  ${members.length}`,85,370);
-	ctx.textAlign="right";ctx.fillStyle="rgba(124,255,107,.65)";ctx.font="bold 13px BeVietnamBold";
-	ctx.fillText("COMMUNITY MEMBERS",W-85,370);
-
-	/* MEMBERS */
-	const n=members.length;
-	const cols=n<=1?1:n<=2?2:n<=5?n:n<=10?5:n<=18?6:n<=32?8:n<=50?10:12;
-	const rows=Math.max(1,Math.ceil(Math.max(n,1)/cols));
-	const gl=70,gr=W-70,gt=420,gb=1010;
-	const cw=(gr-gl)/cols,ch=(gb-gt)/rows;
-
-	for(let i=0;i<n;i++){
-		const u=members[i],col=i%cols,row=Math.floor(i/cols);
-		const x=gl+cw*col+cw/2,y=gt+ch*row+ch/2;
-
-		let r=n<=1?92:n<=2?82:n<=5?62:n<=10?54:n<=18?46:n<=32?38:n<=50?31:25;
-		r=Math.max(17,Math.min(r,ch*.31,cw*.22));
-
-		const tw=Math.max(70,cw-(n<=10?18:12));
-		const th=Math.max(78,ch-(n<=10?14:10));
-
-		ctx.fillStyle="rgba(255,255,255,.030)";
-		round(ctx,x-tw/2,y-th/2,tw,th,18);ctx.fill();
-		ctx.strokeStyle="rgba(60,244,255,.14)";ctx.lineWidth=1.2;ctx.stroke();
-
-		ctx.save();ctx.shadowColor="rgba(124,255,107,.82)";ctx.shadowBlur=n<=10?22:16;
-		ctx.strokeStyle=G;ctx.lineWidth=n<=10?3:2.5;
-		ctx.beginPath();ctx.arc(x,y-8,r+4,0,Math.PI*2);ctx.stroke();ctx.restore();
-
-		avatar(ctx,memberImgs[i],x,y-8,r);
-
-		let nf=n<=1?25:n<=2?23:n<=5?20:n<=10?18:n<=18?16:n<=32?14:n<=50?12:11;
-		nf=Math.min(nf,Math.max(9,ch*.14));
-
-		ctx.fillStyle=WH;ctx.textAlign="center";ctx.font=`bold ${nf}px BeVietnamBold`;
-		ctx.fillText(fit(ctx,u.name,Math.max(50,tw-18),nf,8),x,y+r+21);
-	}
-
-	/* FOOTER */
-	ctx.strokeStyle="rgba(60,244,255,.18)";ctx.lineWidth=1;
-	ctx.beginPath();ctx.moveTo(75,1060);ctx.lineTo(W-75,1060);ctx.stroke();
-
-	ctx.textAlign="left";ctx.fillStyle="rgba(124,255,107,.58)";
-	ctx.font="bold 12px BeVietnamBold";ctx.fillText("GROUP COMMUNITY",80,1087);
-
-	ctx.textAlign="right";ctx.fillStyle="rgba(124,255,107,.58)";
-	ctx.font="bold 12px BeVietnamBold";ctx.fillText("Powered By Tanvir143",W-80,1087);
-
-	return c.toBuffer("image/png");
-}
-
-module.exports={
-	config:{
-		name: "gcimg",
-		aliases: ["groupimage","groupcard","gc"],
-		version: "13.0.0",
-		author: "Tanvir143",
-		cooldown: 5,
-    role: 0,
-    category: "users Cmd",
-		shortDescription: "Premium dynamic group card made by tanvir143",
-		longDescription: "Shows group DP, name, admins and members with dynamic sizing.",
-		guide:{en: "{pn}"}
-	},
-
-	onStart:async function({message,event,api,usersData}){
-		try{
-			const buf=await buildCard(api,usersData,event.threadID);
-			const file=path.join(CACHE,`gcimg_${event.threadID}_${Date.now()}.png`);
-			await fs.writeFile(file,buf);
-
-			return message.reply(
-				{attachment:fs.createReadStream(file)},
-				()=>setTimeout(()=>fs.remove(file).catch(()=>{}),30000)
-			);
-		}catch(e){
-			console.error("GCIMG ERROR:",e);
-			return message.reply("❌ Group card তৈরি করা যায়নি। আবার চেষ্টা করুন।");
-		}
-	}
 };
