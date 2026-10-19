@@ -14,15 +14,16 @@ const fs = require("fs-extra");
 const path = require("path");
 
 const WIDTH = 1600;
-const HEIGHT = 1100;
+const HEIGHT = 1150;
+const MAX_MEMBERS = 30;
 const CACHE_DIR = path.join(__dirname, "../cache");
 
 const FONT_REGULAR = require.resolve(
-    "@fontsource/roboto/files/roboto-latin-400-normal.woff"
+    "@fontsource/noto-sans-bengali/files/noto-sans-bengali-bengali-400-normal.woff"
 );
 
 const FONT_BOLD = require.resolve(
-    "@fontsource/roboto/files/roboto-latin-700-normal.woff"
+    "@fontsource/noto-sans-bengali/files/noto-sans-bengali-bengali-700-normal.woff"
 );
 
 const regularFont = fontkit.openSync(FONT_REGULAR);
@@ -39,111 +40,63 @@ function escapeXML(value = "") {
         .replace(/'/g, "&apos;");
 }
 
-function shorten(value, max = 24) {
-    value = String(value || "Unknown");
-    return value.length > max
-        ? value.slice(0, max - 3) + "..."
-        : value;
+function roundRect(x, y, w, h, r, fill, stroke = "none", sw = 1) {
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
 }
 
-function textWidth(text, font, size) {
-    try {
-        const run = font.layout(String(text));
-        return run.positions.reduce(
-            (sum, position) => sum + position.xAdvance,
-            0
-        ) * size / font.unitsPerEm;
-    } catch {
-        return String(text).length * size * 0.55;
-    }
-}
-
-function svgText(text, x, y, size = 30, color = "#ffffff", bold = false) {
+function textPath(text, x, baseline, size, color, bold = false) {
     const font = bold ? boldFont : regularFont;
-    const safeText = escapeXML(text);
-    const width = textWidth(text, font, size);
-    const fontFamily = "Roboto, Arial, sans-serif";
+    const scale = size / font.unitsPerEm;
+    const run = font.layout(String(text));
+    let cursorX = x;
+    let paths = "";
 
-    return `
-        <text
-            x="${x}"
-            y="${y}"
-            fill="${color}"
-            font-size="${size}"
-            font-weight="${bold ? 700 : 400}"
-            font-family="${fontFamily}"
-            textLength="${Math.max(1, width)}"
-            lengthAdjust="spacingAndGlyphs"
-        >${safeText}</text>
-    `;
-}
+    for (let i = 0; i < run.glyphs.length; i++) {
+        const glyph = run.glyphs[i];
+        const position = run.positions[i];
 
-function roundedRect(x, y, width, height, radius, fill, stroke = "none") {
-    return `
-        <rect
-            x="${x}"
-            y="${y}"
-            width="${width}"
-            height="${height}"
-            rx="${radius}"
-            fill="${fill}"
-            stroke="${stroke}"
-        />
-    `;
-}
-
-function callbackCall(target, method, ...args) {
-    return new Promise((resolve, reject) => {
-        if (!target || typeof target[method] !== "function") {
-            return reject(new Error(`${method} is not available`));
+        if (glyph.path && glyph.path.toSVG()) {
+            paths += `<path d="${glyph.path.toSVG()}" transform="translate(${cursorX + position.xOffset * scale} ${baseline - position.yOffset * scale}) scale(${scale} ${-scale})" fill="${color}"/>`;
         }
 
-        let finished = false;
+        cursorX += position.xAdvance * scale;
+    }
 
-        const done = (error, result) => {
-            if (finished) return;
-            finished = true;
-
-            if (error) reject(error);
-            else resolve(result);
-        };
-
-        try {
-            const result = target[method](...args, (error, data) => {
-                if (arguments.length === 1 && !(error instanceof Error)) {
-                    done(null, error);
-                } else {
-                    done(error, data);
-                }
-            });
-
-            if (result && typeof result.then === "function") {
-                result.then(data => done(null, data)).catch(done);
-            } else if (result !== undefined) {
-                done(null, result);
-            }
-        } catch (error) {
-            done(error);
-        }
-    });
+    return paths;
 }
 
-async function downloadImage(url) {
-    if (!url) return null;
+function textSvg(text, x, y, size, color, bold = false) {
+    return textPath(text, x, y, size, color, bold);
+}
+
+async function downloadBuffer(url, timeout = 12000) {
+    if (!url || typeof url !== "string") return null;
 
     try {
         const response = await axios.get(url, {
             responseType: "arraybuffer",
-            timeout: 15000,
-            maxContentLength: 8 * 1024 * 1024,
+            timeout,
+            maxContentLength: 10 * 1024 * 1024,
             headers: {
                 "User-Agent": "Mozilla/5.0"
             }
         });
 
-        return await sharp(Buffer.from(response.data))
+        return Buffer.from(response.data);
+    } catch {
+        return null;
+    }
+}
+
+async function prepareAvatar(url, size = 150) {
+    const buffer = await downloadBuffer(url);
+
+    if (!buffer) return null;
+
+    try {
+        return await sharp(buffer)
             .rotate()
-            .resize(180, 180, {
+            .resize(size, size, {
                 fit: "cover",
                 position: "centre"
             })
@@ -154,272 +107,391 @@ async function downloadImage(url) {
     }
 }
 
-async function getAvatar(api, usersData, userID, userInfo = {}) {
+async function getUserAvatar(api, usersData, userID, userInfo = {}) {
     try {
         if (usersData && typeof usersData.getAvatarUrl === "function") {
             const url = await usersData.getAvatarUrl(userID);
-            const image = await downloadImage(url);
+            const image = await prepareAvatar(url);
             if (image) return image;
         }
     } catch {}
 
-    try {
-        const info = await callbackCall(api, "getUserInfo", userID);
-        const user = info && (info[userID] || info);
+    const possibleURLs = [
+        userInfo.thumbSrc,
+        userInfo.profilePicUrl,
+        userInfo.avatar,
+        userInfo.image
+    ];
 
-        if (user && user.thumbSrc) {
-            const image = await downloadImage(user.thumbSrc);
-            if (image) return image;
-        }
-
-        if (user && user.profilePicUrl) {
-            const image = await downloadImage(user.profilePicUrl);
-            if (image) return image;
-        }
-    } catch {}
-
-    if (userInfo.thumbSrc) {
-        const image = await downloadImage(userInfo.thumbSrc);
+    for (const url of possibleURLs) {
+        const image = await prepareAvatar(url);
         if (image) return image;
     }
+
+    try {
+        if (api && typeof api.getUserInfo === "function") {
+            const info = await new Promise((resolve, reject) => {
+                let settled = false;
+
+                const done = (err, data) => {
+                    if (settled) return;
+                    settled = true;
+
+                    if (err) reject(err);
+                    else resolve(data);
+                };
+
+                const result = api.getUserInfo(userID, done);
+
+                if (result && typeof result.then === "function") {
+                    result.then(data => done(null, data)).catch(done);
+                }
+            });
+
+            const user = info && (info[userID] || info);
+            const url = user && (user.thumbSrc || user.profilePicUrl);
+
+            const image = await prepareAvatar(url);
+            if (image) return image;
+        }
+    } catch {}
 
     return null;
 }
 
-async function makeCircleAvatar(buffer, size = 100) {
-    if (!buffer) {
-        const fallback = Buffer.from(`
-            <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#374151"/>
-                <text x="50%" y="58%" text-anchor="middle" font-size="${size * 0.42}" fill="#ffffff" font-family="Arial">?</text>
-            </svg>
-        `);
+async function getThreadInfo(api, threadID) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
 
-        return sharp(fallback).png().toBuffer();
-    }
+        const done = (err, data) => {
+            if (settled) return;
+            settled = true;
 
-    const circleMask = Buffer.from(`
-        <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#ffffff"/>
-        </svg>
-    `);
+            if (err) reject(err);
+            else resolve(data);
+        };
 
-    return sharp(buffer)
-        .resize(size, size, { fit: "cover" })
-        .composite([{ input: circleMask, blend: "dest-in" }])
-        .png()
-        .toBuffer();
+        try {
+            const result = api.getThreadInfo(threadID, done);
+
+            if (result && typeof result.then === "function") {
+                result.then(data => done(null, data)).catch(done);
+            }
+        } catch (error) {
+            done(error);
+        }
+    });
+}
+
+function normalizeAdminIDs(adminIDs) {
+    if (!Array.isArray(adminIDs)) return [];
+
+    return adminIDs.map(item => {
+        if (item && typeof item === "object") {
+            return String(item.id || item.userID || item.uid || "");
+        }
+
+        return String(item);
+    }).filter(Boolean);
+}
+
+function getGroupImageURL(threadInfo) {
+    return threadInfo.imageSrc ||
+        threadInfo.imageUrl ||
+        threadInfo.threadImage ||
+        threadInfo.photo ||
+        null;
 }
 
 async function createGroupCard(threadInfo, api, usersData) {
-    const threadName = threadInfo.threadName || "Instagram Group";
-    const participants = Array.isArray(threadInfo.participantIDs)
-        ? threadInfo.participantIDs
+    const threadName = String(
+        threadInfo.threadName || "Instagram Group"
+    );
+
+    const participantIDs = Array.isArray(threadInfo.participantIDs)
+        ? threadInfo.participantIDs.map(String)
         : [];
 
-    const adminIDs = Array.isArray(threadInfo.adminIDs)
-        ? threadInfo.adminIDs.map(item =>
-            typeof item === "object" ? item.id : item
-        )
-        : [];
-
+    const adminIDs = normalizeAdminIDs(threadInfo.adminIDs);
     const userInfoList = Array.isArray(threadInfo.userInfo)
         ? threadInfo.userInfo
         : [];
 
-    const members = participants.map(id => {
-        const user = userInfoList.find(
-            item => String(item.id) === String(id)
-        );
+    const members = participantIDs.slice(0, MAX_MEMBERS).map(id => {
+        const info = userInfoList.find(
+            item => String(item.id || item.userID) === id
+        ) || {};
 
         return {
             id,
-            name: user ? user.name : `User ${String(id).slice(-5)}`,
+            info,
             isAdmin: adminIDs.includes(id)
         };
     });
 
-    const adminCount = members.filter(user => user.isAdmin).length;
-    const memberCount = members.length;
-    const displayedMembers = members.slice(0, 12);
+    const memberCount = participantIDs.length;
+    const adminCount = adminIDs.length;
 
-    const elements = [];
-    const avatarBuffers = [];
+    const margin = 70;
+    const headerY = 65;
+    const groupAvatarSize = 150;
+    const gridStartY = 320;
+    const avatarSize = 118;
+    const cellW = 190;
+    const cellH = 155;
+    const columns = 6;
+    const gapX = 35;
+    const gapY = 30;
+    const totalGridWidth = columns * cellW + (columns - 1) * gapX;
+    const startX = (WIDTH - totalGridWidth) / 2;
 
-    elements.push(`
+    const groupImageURL = getGroupImageURL(threadInfo);
+    const groupAvatar = await prepareAvatar(
+        groupImageURL,
+        groupAvatarSize
+    );
+
+    const overlays = [];
+
+    const svg = [];
+
+    svg.push(`
         <svg xmlns="http://www.w3.org/2000/svg"
              width="${WIDTH}" height="${HEIGHT}"
              viewBox="0 0 ${WIDTH} ${HEIGHT}">
             <defs>
-                <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#101827"/>
-                    <stop offset="50%" stop-color="#172554"/>
-                    <stop offset="100%" stop-color="#083344"/>
+                <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#0b1220"/>
+                    <stop offset="55%" stop-color="#111c35"/>
+                    <stop offset="100%" stop-color="#082f49"/>
                 </linearGradient>
-                <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#22d3ee"/>
+
+                <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#2dd4bf"/>
                     <stop offset="100%" stop-color="#a3e635"/>
+                </linearGradient>
+
+                <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#1e293b"/>
+                    <stop offset="100%" stop-color="#172033"/>
                 </linearGradient>
             </defs>
 
-            <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#background)"/>
-            <circle cx="1450" cy="100" r="230" fill="#22d3ee" opacity="0.08"/>
-            <circle cx="100" cy="1050" r="260" fill="#a3e635" opacity="0.07"/>
+            <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
+            <circle cx="1480" cy="40" r="300" fill="#22d3ee" opacity="0.06"/>
+            <circle cx="40" cy="1110" r="270" fill="#a3e635" opacity="0.05"/>
 
-            ${roundedRect(55, 55, 1490, 990, 40, "#111827", "#334155")}
-            ${roundedRect(85, 85, 1430, 12, 6, "url(#accent)")}
+            ${roundRect(35, 35, WIDTH - 70, HEIGHT - 70, 42, "#0d1526", "#263449", 2)}
+            ${roundRect(70, 70, WIDTH - 140, 9, 5, "url(#accent)")}
 
-            ${svgText("GROUP INFORMATION", 110, 155, 25, "#67e8f9", true)}
-            ${svgText(shorten(threadName, 32), 110, 225, 54, "#ffffff", true)}
-            ${svgText(`Members: ${memberCount}`, 110, 285, 27, "#cbd5e1")}
-            ${svgText(`Admins: ${adminCount}`, 430, 285, 27, "#cbd5e1")}
-
-            ${roundedRect(105, 325, 1390, 2, 1, "#334155")}
-            ${svgText("GROUP MEMBERS", 110, 385, 28, "#a3e635", true)}
+            ${roundRect(75, 105, 1450, 170, 28, "#111c30", "#29384e", 2)}
+        </svg>
     `);
 
-    const columns = 4;
-    const cardWidth = 325;
-    const cardHeight = 145;
-    const startX = 105;
-    const startY = 425;
-    const gapX = 20;
-    const gapY = 20;
+    const base = Buffer.from(svg.join("\n"));
 
-    for (let i = 0; i < displayedMembers.length; i++) {
-        const member = displayedMembers[i];
-        const col = i % columns;
+    const headerOverlays = [];
+
+    if (groupAvatar) {
+        const mask = Buffer.from(`
+            <svg width="${groupAvatarSize}" height="${groupAvatarSize}" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="${groupAvatarSize / 2}" cy="${groupAvatarSize / 2}" r="${groupAvatarSize / 2}" fill="#fff"/>
+            </svg>
+        `);
+
+        const circleAvatar = await sharp(groupAvatar)
+            .resize(groupAvatarSize, groupAvatarSize)
+            .composite([{ input: mask, blend: "dest-in" }])
+            .png()
+            .toBuffer();
+
+        headerOverlays.push({
+            input: circleAvatar,
+            left: 100,
+            top: 115
+        });
+    }
+
+    const groupNameSize = 44;
+    const safeGroupName = threadName.length > 27
+        ? threadName.slice(0, 24) + "..."
+        : threadName;
+
+    const titleSVG = Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">
+            ${textSvg(safeGroupName, 300, 185, groupNameSize, "#ffffff", true)}
+            ${textSvg("GROUP", 300, 225, 19, "#67e8f9", true)}
+            ${textSvg(String(memberCount), 1275, 175, 43, "#ffffff", true)}
+            ${textSvg("MEMBERS", 1275, 205, 17, "#94a3b8", true)}
+            ${textSvg(String(adminCount), 1430, 175, 43, "#a3e635", true)}
+            ${textSvg("ADMINS", 1430, 205, 17, "#94a3b8", true)}
+            ${roundRect(1260, 125, 2, 105, 1, "#334155")}
+            ${roundRect(1415, 125, 2, 105, 1, "#334155")}
+            ${roundRect(90, 300, 1420, 2, 1, "#334155")}
+        </svg>
+    `);
+
+    const memberSVG = [];
+
+    memberSVG.push(`
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="${WIDTH}" height="${HEIGHT}"
+             viewBox="0 0 ${WIDTH} ${HEIGHT}">
+    `);
+
+    const avatarOverlays = [];
+
+    for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+
         const row = Math.floor(i / columns);
+        const col = i % columns;
 
-        const x = startX + col * (cardWidth + gapX);
-        const y = startY + row * (cardHeight + gapY);
+        const centerX = startX + col * (cellW + gapX) + cellW / 2;
+        const centerY = gridStartY + row * (cellH + gapY) + 65;
 
-        elements.push(roundedRect(
-            x, y, cardWidth, cardHeight, 22, "#1e293b", "#334155"
-        ));
+        const x = Math.round(centerX - avatarSize / 2);
+        const y = Math.round(centerY - avatarSize / 2);
 
-        const avatar = await getAvatar(
+        memberSVG.push(`
+            ${roundRect(
+                centerX - cellW / 2,
+                gridStartY + row * (cellH + gapY),
+                cellW,
+                cellH,
+                25,
+                "url(#card)",
+                "#29384e",
+                2
+            )}
+        `);
+
+        const avatar = await getUserAvatar(
             api,
             usersData,
             member.id,
-            userInfoList.find(item => String(item.id) === String(member.id)) || {}
+            member.info
         );
 
-        const circle = await makeCircleAvatar(avatar, 88);
+        let avatarBuffer = avatar;
 
-        avatarBuffers.push({
-            input: circle,
-            left: x + 18,
-            top: y + 28
+        if (!avatarBuffer) {
+            const fallback = Buffer.from(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="${avatarSize}" height="${avatarSize}">
+                    <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}" r="${avatarSize / 2}" fill="#374151"/>
+                    <circle cx="${avatarSize / 2}" cy="42" r="23" fill="#9ca3af"/>
+                    <ellipse cx="${avatarSize / 2}" cy="94" rx="38" ry="27" fill="#9ca3af"/>
+                </svg>
+            `);
+
+            avatarBuffer = await sharp(fallback).png().toBuffer();
+        }
+
+        const mask = Buffer.from(`
+            <svg xmlns="http://www.w3.org/2000/svg" width="${avatarSize}" height="${avatarSize}">
+                <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}" r="${avatarSize / 2 - 3}" fill="#ffffff"/>
+            </svg>
+        `);
+
+        const circleAvatar = await sharp(avatarBuffer)
+            .resize(avatarSize, avatarSize, { fit: "cover" })
+            .composite([{ input: mask, blend: "dest-in" }])
+            .png()
+            .toBuffer();
+
+        avatarOverlays.push({
+            input: circleAvatar,
+            left: x,
+            top: y
         });
 
-        elements.push(svgText(
-            shorten(member.name, 17),
-            x + 122,
-            y + 65,
-            23,
-            "#ffffff",
-            true
-        ));
-
-        elements.push(svgText(
-            member.isAdmin ? "ADMIN" : "MEMBER",
-            x + 122,
-            y + 103,
-            17,
-            member.isAdmin ? "#a3e635" : "#94a3b8",
-            true
-        ));
+        if (member.isAdmin) {
+            memberSVG.push(`
+                <circle
+                    cx="${centerX}"
+                    cy="${centerY}"
+                    r="${avatarSize / 2 + 5}"
+                    fill="none"
+                    stroke="#22c55e"
+                    stroke-width="6"
+                />
+            `);
+        }
     }
 
-    if (memberCount > displayedMembers.length) {
-        elements.push(svgText(
-            `+ ${memberCount - displayedMembers.length} more members`,
-            110,
-            965,
-            23,
-            "#cbd5e1"
-        ));
-    }
+    memberSVG.push("</svg>");
 
-    elements.push(svgText(
-        "Powered By Tanvir143",
-        110,
-        1005,
-        21,
-        "#67e8f9",
-        true
-    ));
+    const memberDecoration = Buffer.from(memberSVG.join("\n"));
 
-    elements.push("</svg>");
-
-    const svgBuffer = Buffer.from(elements.join("\n"));
-
-    return sharp(svgBuffer)
-        .composite(avatarBuffers)
+    const finalImage = await sharp(base)
+        .composite([
+            ...headerOverlays,
+            { input: titleSVG, left: 0, top: 0 },
+            { input: memberDecoration, left: 0, top: 0 },
+            ...avatarOverlays
+        ])
         .png()
         .toBuffer();
+
+    return finalImage;
 }
 
 module.exports = {
     config: {
         name: "gcimg",
         aliases: ["groupimage", "groupcard", "gc"],
-        version: "2.0.0",
+        version: "3.0.0",
         author: "Tanvir Ahmed (Tanvir143)",
         countDown: 10,
         role: 0,
-        shortDescription: "Create a group information image",
-        longDescription: "Generates a group card with member and admin information.",
+        shortDescription: "Create a group DP card",
+        longDescription: "Create a group image with group DP, name, member count, admin count and up to 30 member DPs.",
         category: "group",
         guide: "{pn}"
     },
 
     onStart: async function ({ api, event, message, usersData }) {
         const threadID = event.threadID;
+        let filePath;
 
         try {
             await message.reply("⏳ Group card তৈরি হচ্ছে...");
 
-            const threadInfo = await callbackCall(
-                api,
-                "getThreadInfo",
-                threadID
-            );
+            const threadInfo = await getThreadInfo(api, threadID);
 
             if (!threadInfo) {
                 return message.reply("❌ Group information পাওয়া যায়নি।");
             }
 
-            const card = await createGroupCard(
+            const image = await createGroupCard(
                 threadInfo,
                 api,
                 usersData
             );
 
-            const filePath = path.join(
+            filePath = path.join(
                 CACHE_DIR,
                 `gcimg_${threadID}_${Date.now()}.png`
             );
 
-            await fs.writeFile(filePath, card);
+            await fs.writeFile(filePath, image);
 
-            try {
-                await message.reply({
-                    body: "🖼️ Group card তৈরি হয়েছে!",
-                    attachment: fs.createReadStream(filePath)
-                });
-            } finally {
-                setTimeout(() => {
-                    fs.remove(filePath).catch(() => {});
-                }, 30000);
-            }
+            await message.reply({
+                body: "🖼️ Group card তৈরি হয়েছে!",
+                attachment: fs.createReadStream(filePath)
+            });
         } catch (error) {
             console.error("[GCIMG ERROR]", error);
 
             return message.reply(
-                "❌ Group card তৈরি করা যায়নি। Console log পরীক্ষা করো।"
+                "❌ Group card তৈরি করা যায়নি। Railway console-এর [GCIMG ERROR] দেখো।"
             );
+        } finally {
+            if (filePath) {
+                setTimeout(() => {
+                    fs.remove(filePath).catch(() => {});
+                }, 30000);
+            }
         }
     }
 };
