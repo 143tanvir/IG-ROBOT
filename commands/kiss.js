@@ -312,13 +312,18 @@ module.exports.onStart = async function ({
       messageID
     );
   } catch (error) {
+    const errorMessage =
+      error?.response?.status
+        ? `HTTP ${error.response.status}`
+        : error?.message || String(error);
+
     console.error(
-      "[Tanvir143 | igBot] Kiss command error:",
-      error && error.stack ? error.stack : error
+      "[Tanvir143 | igBot] Kiss error:",
+      error?.stack || error
     );
 
     return api.sendMessage(
-      "❌ Kiss image তৈরি করা যায়নি। Template URL, profile picture, Jimp package এবং MongoDB connection পরীক্ষা করো।",
+      `❌ Kiss image error: ${errorMessage}`,
       threadID,
       messageID
     );
