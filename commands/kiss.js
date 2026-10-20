@@ -29,9 +29,13 @@ function normalizeID(id) {
 }
 
 function getMentionIDs(event) {
-  return Object.keys(event.mentions || {})
-    .map(normalizeID)
-    .filter(Boolean);
+  return [
+    ...new Set(
+      Object.keys(event.mentions || {})
+        .map(normalizeID)
+        .filter(Boolean)
+    )
+  ];
 }
 
 function getReplyID(event) {
@@ -43,7 +47,7 @@ function getReplyID(event) {
 }
 
 function getTargetIDs(event) {
-  const mentions = [...new Set(getMentionIDs(event))];
+  const mentions = getMentionIDs(event);
   const senderID = normalizeID(event.senderID);
 
   if (mentions.length >= 2) {
@@ -96,12 +100,8 @@ async function getRegisteredGenders(threadID) {
   });
 
   return {
-    boy: new Set(
-      (data?.boy || []).map(normalizeID)
-    ),
-    girl: new Set(
-      (data?.girl || []).map(normalizeID)
-    )
+    boy: new Set((data?.boy || []).map(normalizeID)),
+    girl: new Set((data?.girl || []).map(normalizeID))
   };
 }
 
@@ -111,7 +111,7 @@ function getGender(userID, genderData) {
 
   if (isBoy && isGirl) {
     throw new Error(
-      `User ${userID} boy এবং girl দুই list-এই আছে।`
+      `User ${userID} boy ও girl দুই list-এই আছে।`
     );
   }
 
@@ -121,6 +121,9 @@ function getGender(userID, genderData) {
   return null;
 }
 
+/**
+ * Profile loading follows the same call pattern as pair.js.
+ */
 async function getProfileImage(userID, event, api) {
   const fakeEvent = {
     ...event,
@@ -166,11 +169,19 @@ async function getProfileImage(userID, event, api) {
     }
   });
 
-  return Buffer.from(response.data);
+  const buffer = Buffer.from(response.data);
+
+  if (!buffer.length) {
+    throw new Error(
+      `User ${userID}-এর profile picture খালি।`
+    );
+  }
+
+  return buffer;
 }
 
-async function loadTemplate() {
-  const response = await axios.get(TEMPLATE_URL, {
+async function downloadImage(url) {
+  const response = await axios.get(url, {
     responseType: "arraybuffer",
     timeout: 20000,
     maxContentLength: MAX_IMAGE_SIZE,
@@ -180,9 +191,23 @@ async function loadTemplate() {
     }
   });
 
-  return Jimp.read(Buffer.from(response.data));
+  return Buffer.from(response.data);
 }
 
+async function loadTemplate() {
+  const buffer = await downloadImage(TEMPLATE_URL);
+  const template = await Jimp.read(buffer);
+
+  if (!template.bitmap.width || !template.bitmap.height) {
+    throw new Error("Kiss template-এর dimensions পাওয়া যায়নি।");
+  }
+
+  return template;
+}
+
+/**
+ * Makes a circular avatar compatible with Jimp 1.6.1.
+ */
 async function loadAvatar(buffer, size) {
   const image = await Jimp.read(buffer);
 
@@ -194,7 +219,7 @@ async function loadAvatar(buffer, size) {
   const mask = new Jimp({
     width: size,
     height: size,
-    color: 0x00000000
+    color: 0xFFFFFFFF
   });
 
   mask.scan(
@@ -203,8 +228,8 @@ async function loadAvatar(buffer, size) {
     size,
     size,
     function (x, y, idx) {
-      const dx = x - size / 2;
-      const dy = y - size / 2;
+      const dx = x + 0.5 - size / 2;
+      const dy = y + 0.5 - size / 2;
       const radius = size / 2;
 
       this.bitmap.data[idx + 3] =
@@ -219,32 +244,49 @@ async function loadAvatar(buffer, size) {
   return image;
 }
 
+/**
+ * Template dimensions from the supplied image:
+ * 1536 x 864.
+ *
+ * Top yellow marker    = girl DP
+ * Bottom-left marker   = boy DP
+ *
+ * Positions are proportional, so they also scale if
+ * the hosted template has a different resolution.
+ */
 async function createKissImage(boyBuffer, girlBuffer) {
   const template = await loadTemplate();
 
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  const avatarSize = Math.max(
-    1,
-    Math.round(Math.min(width, height) * 0.24)
+  // Covers the black/yellow marker with the circular DP.
+  const avatarSize = Math.round(
+    Math.min(width, height) * 0.13
   );
 
-  // Position may need adjustment to match your actual template.
+  // TOP MARKER: GIRL
+  const girlCenterX = width * 0.434;
+  const girlCenterY = height * 0.134;
+
   const girlX = Math.round(
-    width * 0.28 - avatarSize / 2
+    girlCenterX - avatarSize / 2
   );
 
   const girlY = Math.round(
-    height * 0.23 - avatarSize / 2
+    girlCenterY - avatarSize / 2
   );
 
+  // BOTTOM-LEFT MARKER: BOY
+  const boyCenterX = width * 0.118;
+  const boyCenterY = height * 0.542;
+
   const boyX = Math.round(
-    width * 0.62 - avatarSize / 2
+    boyCenterX - avatarSize / 2
   );
 
   const boyY = Math.round(
-    height * 0.57 - avatarSize / 2
+    boyCenterY - avatarSize / 2
   );
 
   const girlAvatar = await loadAvatar(
@@ -257,6 +299,7 @@ async function createKissImage(boyBuffer, girlBuffer) {
     avatarSize
   );
 
+  // Composite both avatars over the yellow markers.
   template.composite(girlAvatar, girlX, girlY);
   template.composite(boyAvatar, boyX, boyY);
 
@@ -266,7 +309,7 @@ async function createKissImage(boyBuffer, girlBuffer) {
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.2.0",
+  version: "1.3.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
