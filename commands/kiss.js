@@ -29,34 +29,35 @@ function normalizeID(id) {
 }
 
 function getMentionIDs(event) {
-  const mentions = event.mentions || {};
-  return Object.keys(mentions).map(normalizeID).filter(Boolean);
+  return Object.keys(event.mentions || {})
+    .map(normalizeID)
+    .filter(Boolean);
 }
 
 function getReplyID(event) {
-  const messageReply = event.messageReply || {};
+  const reply = event.messageReply || {};
+
   return normalizeID(
-    messageReply.senderID ||
-    messageReply.senderId ||
-    ""
+    reply.senderID || reply.senderId || ""
   );
 }
 
 function getTargetIDs(event) {
   const mentions = [...new Set(getMentionIDs(event))];
+  const senderID = normalizeID(event.senderID);
 
   if (mentions.length >= 2) {
     return mentions.slice(0, 2);
   }
 
   if (mentions.length === 1) {
-    return [normalizeID(event.senderID), mentions[0]];
+    return [senderID, mentions[0]];
   }
 
   const replyID = getReplyID(event);
 
   if (replyID) {
-    return [normalizeID(event.senderID), replyID];
+    return [senderID, replyID];
   }
 
   return [];
@@ -94,16 +95,13 @@ async function getRegisteredGenders(threadID) {
     _id: String(threadID)
   });
 
-  if (!data) {
-    return {
-      boy: new Set(),
-      girl: new Set()
-    };
-  }
-
   return {
-    boy: new Set((data.boy || []).map(normalizeID)),
-    girl: new Set((data.girl || []).map(normalizeID))
+    boy: new Set(
+      (data?.boy || []).map(normalizeID)
+    ),
+    girl: new Set(
+      (data?.girl || []).map(normalizeID)
+    )
   };
 }
 
@@ -113,7 +111,7 @@ function getGender(userID, genderData) {
 
   if (isBoy && isGirl) {
     throw new Error(
-      `User ${userID} দুইটি gender list-এই আছে। PairData ঠিক করো।`
+      `User ${userID} boy এবং girl দুই list-এই আছে।`
     );
   }
 
@@ -123,11 +121,27 @@ function getGender(userID, genderData) {
   return null;
 }
 
-async function getProfileImage(userID) {
-  const profile = await resolveProfile(userID);
+/**
+ * Uses the same resolveProfile calling pattern as pair.js.
+ */
+async function getProfileImage(userID, event, api) {
+  const fakeEvent = {
+    ...event,
+    senderID: String(userID),
+    messageReply: null,
+    mentions: {}
+  };
+
+  const profile = await resolveProfile(
+    [String(userID)],
+    fakeEvent,
+    api
+  );
 
   if (!profile) {
-    throw new Error(`User ${userID}-এর profile পাওয়া যায়নি।`);
+    throw new Error(
+      `User ${userID}-এর profile পাওয়া যায়নি।`
+    );
   }
 
   const imageURL =
@@ -137,7 +151,9 @@ async function getProfileImage(userID) {
     profile.profilePic;
 
   if (!imageURL || typeof imageURL !== "string") {
-    throw new Error(`User ${userID}-এর profile picture পাওয়া যায়নি।`);
+    throw new Error(
+      `User ${userID}-এর profile picture URL পাওয়া যায়নি।`
+    );
   }
 
   const response = await axios.get(imageURL, {
@@ -177,12 +193,12 @@ async function loadAvatar(buffer, size) {
   mask.scan(0, 0, size, size, function (x, y, idx) {
     const dx = x - size / 2;
     const dy = y - size / 2;
+    const radius = size / 2;
 
-    if (dx * dx + dy * dy <= (size / 2) * (size / 2)) {
-      this.bitmap.data[idx + 3] = 255;
-    } else {
-      this.bitmap.data[idx + 3] = 0;
-    }
+    this.bitmap.data[idx + 3] =
+      dx * dx + dy * dy <= radius * radius
+        ? 255
+        : 0;
   });
 
   image.mask(mask, 0, 0);
@@ -190,35 +206,40 @@ async function loadAvatar(buffer, size) {
   return image;
 }
 
-async function createKissImage(
-  boyBuffer,
-  girlBuffer
-) {
+async function createKissImage(boyBuffer, girlBuffer) {
   const template = await loadTemplate();
 
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  /*
-   * These positions are suitable only if the template
-   * has its two avatar spaces near these locations.
-   * Adjust them to match your original template.
-   */
-  const avatarSize = Math.round(Math.min(width, height) * 0.24);
+  const avatarSize = Math.round(
+    Math.min(width, height) * 0.24
+  );
 
-  const boyX = Math.round(width * 0.62 - avatarSize / 2);
-  const boyY = Math.round(height * 0.57 - avatarSize / 2);
+  // Adjust these positions if your template uses other locations.
+  const girlX = Math.round(
+    width * 0.28 - avatarSize / 2
+  );
 
-  const girlX = Math.round(width * 0.28 - avatarSize / 2);
-  const girlY = Math.round(height * 0.23 - avatarSize / 2);
+  const girlY = Math.round(
+    height * 0.23 - avatarSize / 2
+  );
 
-  const boyAvatar = await loadAvatar(
-    boyBuffer,
-    avatarSize
+  const boyX = Math.round(
+    width * 0.62 - avatarSize / 2
+  );
+
+  const boyY = Math.round(
+    height * 0.57 - avatarSize / 2
   );
 
   const girlAvatar = await loadAvatar(
     girlBuffer,
+    avatarSize
+  );
+
+  const boyAvatar = await loadAvatar(
+    boyBuffer,
     avatarSize
   );
 
@@ -231,7 +252,7 @@ async function createKissImage(
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.0.0",
+  version: "1.1.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
@@ -253,9 +274,13 @@ module.exports.onStart = async function ({
   try {
     const targets = getTargetIDs(event);
 
-    if (targets.length !== 2 || !targets[0] || !targets[1]) {
+    if (
+      targets.length !== 2 ||
+      !targets[0] ||
+      !targets[1]
+    ) {
       return api.sendMessage(
-        "💋 ব্যবহার: `.kiss @mention` অথবা দুইজনকে mention করো, অথবা কারও message-এ reply দিয়ে `.kiss` লেখো।",
+        "💋 ব্যবহার:\n.kiss @mention\n.kiss @user1 @user2\nঅথবা কারও message-এ reply দিয়ে .kiss লেখো।",
         threadID,
         messageID
       );
@@ -269,10 +294,19 @@ module.exports.onStart = async function ({
       );
     }
 
-    const genderData = await getRegisteredGenders(threadID);
+    const genderData = await getRegisteredGenders(
+      threadID
+    );
 
-    const gender1 = getGender(targets[0], genderData);
-    const gender2 = getGender(targets[1], genderData);
+    const gender1 = getGender(
+      targets[0],
+      genderData
+    );
+
+    const gender2 = getGender(
+      targets[1],
+      genderData
+    );
 
     if (!gender1 || !gender2) {
       return api.sendMessage(
@@ -284,18 +318,23 @@ module.exports.onStart = async function ({
 
     if (gender1 === gender2) {
       return api.sendMessage(
-        gender1 === "boy" ? GAY_MESSAGE : LESBIAN_MESSAGE,
+        gender1 === "boy"
+          ? GAY_MESSAGE
+          : LESBIAN_MESSAGE,
         threadID,
         messageID
       );
     }
 
-    const boyID = gender1 === "boy" ? targets[0] : targets[1];
-    const girlID = gender1 === "girl" ? targets[0] : targets[1];
+    const boyID =
+      gender1 === "boy" ? targets[0] : targets[1];
+
+    const girlID =
+      gender1 === "girl" ? targets[0] : targets[1];
 
     const [boyBuffer, girlBuffer] = await Promise.all([
-      getProfileImage(boyID),
-      getProfileImage(girlID)
+      getProfileImage(boyID, event, api),
+      getProfileImage(girlID, event, api)
     ]);
 
     const imageBuffer = await createKissImage(
@@ -306,21 +345,20 @@ module.exports.onStart = async function ({
     return api.sendMessage(
       {
         body: "💋 Kiss time!",
-        attachment: Buffer.from(imageBuffer)
+        attachment: imageBuffer
       },
       threadID,
       messageID
     );
   } catch (error) {
-    const errorMessage =
-      error?.response?.status
-        ? `HTTP ${error.response.status}`
-        : error?.message || String(error);
-
     console.error(
       "[Tanvir143 | igBot] Kiss error:",
       error?.stack || error
     );
+
+    const errorMessage = error?.response?.status
+      ? `HTTP ${error.response.status}`
+      : error?.message || String(error);
 
     return api.sendMessage(
       `❌ Kiss image error: ${errorMessage}`,
