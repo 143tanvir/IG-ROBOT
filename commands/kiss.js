@@ -9,7 +9,8 @@
 "use strict";
 
 const axios = require("axios");
-const Jimp = require("jimp");
+const JimpModule = require("jimp");
+const Jimp = JimpModule.Jimp || JimpModule.default || JimpModule;
 const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/3laJwc1.jpg";
