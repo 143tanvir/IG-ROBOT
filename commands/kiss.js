@@ -22,7 +22,7 @@ const LESBIAN_MESSAGE =
   "🌈 Lesbian Detected!\nদুইজনই মেয়ে, তাই kiss image তৈরি করা হয়নি।";
 
 const REGISTER_MESSAGE =
-  "❌ Gender পাওয়া যায়নি!\nআগে `.pair boy` অথবা `.pair girl` দিয়ে gender register করো।";
+  "❌ অন্তত একজনের gender register থাকতে হবে।\n.pair boy অথবা .pair girl ব্যবহার করো।";
 
 function normalizeID(id) {
   return String(id || "").replace(/[^0-9]/g, "");
@@ -46,9 +46,107 @@ function getReplyID(event) {
   );
 }
 
-function getTargetIDs(event) {
-  const mentions = getMentionIDs(event);
+/**
+ * Resolve a literal username using the bot API.
+ * Actual mentions are handled separately through event.mentions.
+ */
+async function resolveUsername(username, api) {
+  const cleanName = String(username || "")
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/[,\s]+$/, "");
+
+  if (!cleanName) return null;
+
+  if (typeof api.getUserID !== "function") {
+    throw new Error(
+      "এই ICA-তে username lookup-এর জন্য api.getUserID পাওয়া যায়নি।"
+    );
+  }
+
+  const result = await new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+
+      if (error) reject(error);
+      else resolve(value);
+    };
+
+    try {
+      const returned = api.getUserID(
+        cleanName,
+        (error, data) => {
+          if (error) return finish(error);
+
+          if (data instanceof Error) {
+            return finish(data);
+          }
+
+          finish(null, data);
+        }
+      );
+
+      if (returned && typeof returned.then === "function") {
+        returned.then(
+          value => finish(null, value),
+          error => finish(error)
+        );
+      } else if (
+        returned !== undefined &&
+        returned !== null
+      ) {
+        finish(null, returned);
+      }
+    } catch (error) {
+      finish(error);
+    }
+  });
+
+  if (typeof result === "string" || typeof result === "number") {
+    return normalizeID(result) || null;
+  }
+
+  if (Array.isArray(result) && result.length) {
+    const first = result[0];
+
+    if (typeof first === "string" || typeof first === "number") {
+      return normalizeID(first) || null;
+    }
+
+    if (first && typeof first === "object") {
+      return normalizeID(first.userID || first.id) || null;
+    }
+  }
+
+  if (result && typeof result === "object") {
+    return normalizeID(
+      result.userID ||
+      result.userId ||
+      result.id ||
+      result.ID
+    ) || null;
+  }
+
+  return null;
+}
+
+function extractUsernames(body) {
+  const text = String(body || "");
+  const matches = text.match(/@([a-zA-Z0-9._]+)/g) || [];
+
+  return [
+    ...new Set(
+      matches.map(name => name.replace(/^@/, ""))
+    )
+  ];
+}
+
+async function getTargetIDs(event, api) {
   const senderID = normalizeID(event.senderID);
+  const mentions = getMentionIDs(event);
 
   if (mentions.length >= 2) {
     return mentions.slice(0, 2);
@@ -56,6 +154,40 @@ function getTargetIDs(event) {
 
   if (mentions.length === 1) {
     return [senderID, mentions[0]];
+  }
+
+  const body = String(event.body || "");
+  const usernames = extractUsernames(body);
+
+  if (usernames.length >= 2) {
+    const resolved = await Promise.all(
+      usernames.slice(0, 2).map(name =>
+        resolveUsername(name, api)
+      )
+    );
+
+    if (resolved.every(Boolean)) {
+      return resolved;
+    }
+
+    throw new Error(
+      "দুইজনের username resolve করা যায়নি। সঠিক username বা mention ব্যবহার করো।"
+    );
+  }
+
+  if (usernames.length === 1) {
+    const targetID = await resolveUsername(
+      usernames[0],
+      api
+    );
+
+    if (!targetID) {
+      throw new Error(
+        `@${usernames[0]} username থেকে user ID পাওয়া যায়নি।`
+      );
+    }
+
+    return [senderID, targetID];
   }
 
   const replyID = getReplyID(event);
@@ -111,7 +243,7 @@ function getGender(userID, genderData) {
 
   if (isBoy && isGirl) {
     throw new Error(
-      `User ${userID} boy ও girl দুই list-এই আছে।`
+      `User ${userID} boy এবং girl দুই list-এই আছে।`
     );
   }
 
@@ -121,9 +253,6 @@ function getGender(userID, genderData) {
   return null;
 }
 
-/**
- * Profile loading follows the same call pattern as pair.js.
- */
 async function getProfileImage(userID, event, api) {
   const fakeEvent = {
     ...event,
@@ -138,17 +267,21 @@ async function getProfileImage(userID, event, api) {
     api
   );
 
-  if (!profile) {
+  const profileData = Array.isArray(profile)
+    ? profile[0]
+    : profile;
+
+  if (!profileData) {
     throw new Error(
       `User ${userID}-এর profile পাওয়া যায়নি।`
     );
   }
 
   const imageURL =
-    profile.profilePicture ||
-    profile.avatar ||
-    profile.photoURL ||
-    profile.profilePic;
+    profileData.profilePicture ||
+    profileData.avatar ||
+    profileData.photoURL ||
+    profileData.profilePic;
 
   if (
     typeof imageURL !== "string" ||
@@ -206,7 +339,7 @@ async function loadTemplate() {
 }
 
 /**
- * Makes a circular avatar compatible with Jimp 1.6.1.
+ * Circular avatar using Jimp v1.6.1.
  */
 async function loadAvatar(buffer, size) {
   const image = await Jimp.read(buffer);
@@ -222,72 +355,40 @@ async function loadAvatar(buffer, size) {
     color: 0xFFFFFFFF
   });
 
-  mask.scan(
-    0,
-    0,
-    size,
-    size,
-    function (x, y, idx) {
-      const dx = x + 0.5 - size / 2;
-      const dy = y + 0.5 - size / 2;
-      const radius = size / 2;
+  mask.scan(0, 0, size, size, function (x, y, idx) {
+    const dx = x + 0.5 - size / 2;
+    const dy = y + 0.5 - size / 2;
+    const radius = size / 2;
 
-      this.bitmap.data[idx + 3] =
-        dx * dx + dy * dy <= radius * radius
-          ? 255
-          : 0;
-    }
-  );
+    this.bitmap.data[idx + 3] =
+      dx * dx + dy * dy <= radius * radius
+        ? 255
+        : 0;
+  });
 
   image.mask(mask);
 
   return image;
 }
 
-/**
- * Template dimensions from the supplied image:
- * 1536 x 864.
- *
- * Top yellow marker    = girl DP
- * Bottom-left marker   = boy DP
- *
- * Positions are proportional, so they also scale if
- * the hosted template has a different resolution.
- */
 async function createKissImage(boyBuffer, girlBuffer) {
   const template = await loadTemplate();
 
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  // Covers the black/yellow marker with the circular DP.
+  // Larger circular DPs, centered on the yellow markers.
   const avatarSize = Math.round(
-    Math.min(width, height) * 0.13
+    Math.min(width, height) * 0.17
   );
 
-  // TOP MARKER: GIRL
-  const girlCenterX = width * 0.434;
-  const girlCenterY = height * 0.134;
+  // Girl: upper yellow marker.
+  const girlX = Math.round(width * 0.434 - avatarSize / 2);
+  const girlY = Math.round(height * 0.134 - avatarSize / 2);
 
-  const girlX = Math.round(
-    girlCenterX - avatarSize / 2
-  );
-
-  const girlY = Math.round(
-    girlCenterY - avatarSize / 2
-  );
-
-  // BOTTOM-LEFT MARKER: BOY
-  const boyCenterX = width * 0.118;
-  const boyCenterY = height * 0.542;
-
-  const boyX = Math.round(
-    boyCenterX - avatarSize / 2
-  );
-
-  const boyY = Math.round(
-    boyCenterY - avatarSize / 2
-  );
+  // Boy: lower-left yellow marker.
+  const boyX = Math.round(width * 0.118 - avatarSize / 2);
+  const boyY = Math.round(height * 0.542 - avatarSize / 2);
 
   const girlAvatar = await loadAvatar(
     girlBuffer,
@@ -299,7 +400,6 @@ async function createKissImage(boyBuffer, girlBuffer) {
     avatarSize
   );
 
-  // Composite both avatars over the yellow markers.
   template.composite(girlAvatar, girlX, girlY);
   template.composite(boyAvatar, boyX, boyY);
 
@@ -309,7 +409,7 @@ async function createKissImage(boyBuffer, girlBuffer) {
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.3.0",
+  version: "1.4.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
@@ -320,6 +420,7 @@ module.exports.config = {
   guide: {
     en:
       "{pn} @mention\n" +
+      "{pn} @username\n" +
       "{pn} @user1 @user2\n" +
       "Reply to a message with {pn}"
   }
@@ -330,7 +431,7 @@ module.exports.onStart = async function ({ api, event }) {
   const messageID = event.messageID;
 
   try {
-    const targets = getTargetIDs(event);
+    const targets = await getTargetIDs(event, api);
 
     if (
       targets.length !== 2 ||
@@ -340,6 +441,7 @@ module.exports.onStart = async function ({ api, event }) {
       return api.sendMessage(
         "💋 ব্যবহার:\n" +
           ".kiss @mention\n" +
+          ".kiss @username\n" +
           ".kiss @user1 @user2\n" +
           "অথবা কারও message-এ reply দিয়ে .kiss লেখো।",
         threadID,
@@ -357,15 +459,23 @@ module.exports.onStart = async function ({ api, event }) {
 
     const genderData = await getRegisteredGenders(threadID);
 
-    const gender1 = getGender(targets[0], genderData);
-    const gender2 = getGender(targets[1], genderData);
+    let gender1 = getGender(targets[0], genderData);
+    let gender2 = getGender(targets[1], genderData);
 
-    if (!gender1 || !gender2) {
+    // If only one gender is registered, infer the other
+    // as the opposite gender for this command only.
+    if (!gender1 && !gender2) {
       return api.sendMessage(
         REGISTER_MESSAGE,
         threadID,
         messageID
       );
+    }
+
+    if (gender1 && !gender2) {
+      gender2 = gender1 === "boy" ? "girl" : "boy";
+    } else if (!gender1 && gender2) {
+      gender1 = gender2 === "boy" ? "girl" : "boy";
     }
 
     if (gender1 === gender2) {
