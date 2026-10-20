@@ -11,10 +11,10 @@ const MAX_TARGETS = 50;
 
 module.exports.config = {
   name: "gender",
-  aliases: ["setgender", "gend"],
+  aliases: ["setgender", "g"],
   version: "2.1.0",
-  author: "Tanvir Ahmed (Tanvir143)",
-  countDown: 3,
+  author: "Tanvir Ahmed ",
+  cooldown: 3,
   role: 0,
   shortDescription: "Register and manage gender",
   longDescription: "Manage group gender registrations using MongoDB",
