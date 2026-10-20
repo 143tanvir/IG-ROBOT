@@ -9,8 +9,7 @@
 "use strict";
 
 const axios = require("axios");
-const JimpModule = require("jimp");
-const Jimp = JimpModule.Jimp || JimpModule.default || JimpModule;
+const { Jimp } = require("jimp");
 const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/3laJwc1.jpg";
@@ -122,9 +121,6 @@ function getGender(userID, genderData) {
   return null;
 }
 
-/**
- * Uses the same resolveProfile calling pattern as pair.js.
- */
 async function getProfileImage(userID, event, api) {
   const fakeEvent = {
     ...event,
@@ -151,7 +147,10 @@ async function getProfileImage(userID, event, api) {
     profile.photoURL ||
     profile.profilePic;
 
-  if (!imageURL || typeof imageURL !== "string") {
+  if (
+    typeof imageURL !== "string" ||
+    !/^https?:\/\//i.test(imageURL)
+  ) {
     throw new Error(
       `User ${userID}-এর profile picture URL পাওয়া যায়নি।`
     );
@@ -187,22 +186,35 @@ async function loadTemplate() {
 async function loadAvatar(buffer, size) {
   const image = await Jimp.read(buffer);
 
-  image.cover(size, size);
-
-  const mask = new Jimp(size, size, 0x00000000);
-
-  mask.scan(0, 0, size, size, function (x, y, idx) {
-    const dx = x - size / 2;
-    const dy = y - size / 2;
-    const radius = size / 2;
-
-    this.bitmap.data[idx + 3] =
-      dx * dx + dy * dy <= radius * radius
-        ? 255
-        : 0;
+  image.cover({
+    w: size,
+    h: size
   });
 
-  image.mask(mask, 0, 0);
+  const mask = new Jimp({
+    width: size,
+    height: size,
+    color: 0x00000000
+  });
+
+  mask.scan(
+    0,
+    0,
+    size,
+    size,
+    function (x, y, idx) {
+      const dx = x - size / 2;
+      const dy = y - size / 2;
+      const radius = size / 2;
+
+      this.bitmap.data[idx + 3] =
+        dx * dx + dy * dy <= radius * radius
+          ? 255
+          : 0;
+    }
+  );
+
+  image.mask(mask);
 
   return image;
 }
@@ -213,11 +225,12 @@ async function createKissImage(boyBuffer, girlBuffer) {
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  const avatarSize = Math.round(
-    Math.min(width, height) * 0.24
+  const avatarSize = Math.max(
+    1,
+    Math.round(Math.min(width, height) * 0.24)
   );
 
-  // Adjust these positions if your template uses other locations.
+  // Position may need adjustment to match your actual template.
   const girlX = Math.round(
     width * 0.28 - avatarSize / 2
   );
@@ -247,28 +260,29 @@ async function createKissImage(boyBuffer, girlBuffer) {
   template.composite(girlAvatar, girlX, girlY);
   template.composite(boyAvatar, boyX, boyY);
 
-  return template.getBufferAsync(Jimp.MIME_PNG);
+  return await template.getBuffer("image/png");
 }
 
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.1.0",
+  version: "1.2.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
   shortDescription: "Create a kiss image",
-  longDescription: "Create a kiss image using registered genders and profile pictures.",
+  longDescription:
+    "Create a kiss image using registered genders and profile pictures.",
   category: "fun",
   guide: {
-    en: "{pn} @mention\n{pn} @user1 @user2\nReply to a message with {pn}"
+    en:
+      "{pn} @mention\n" +
+      "{pn} @user1 @user2\n" +
+      "Reply to a message with {pn}"
   }
 };
 
-module.exports.onStart = async function ({
-  api,
-  event
-}) {
+module.exports.onStart = async function ({ api, event }) {
   const threadID = event.threadID;
   const messageID = event.messageID;
 
@@ -281,7 +295,10 @@ module.exports.onStart = async function ({
       !targets[1]
     ) {
       return api.sendMessage(
-        "💋 ব্যবহার:\n.kiss @mention\n.kiss @user1 @user2\nঅথবা কারও message-এ reply দিয়ে .kiss লেখো।",
+        "💋 ব্যবহার:\n" +
+          ".kiss @mention\n" +
+          ".kiss @user1 @user2\n" +
+          "অথবা কারও message-এ reply দিয়ে .kiss লেখো।",
         threadID,
         messageID
       );
@@ -295,19 +312,10 @@ module.exports.onStart = async function ({
       );
     }
 
-    const genderData = await getRegisteredGenders(
-      threadID
-    );
+    const genderData = await getRegisteredGenders(threadID);
 
-    const gender1 = getGender(
-      targets[0],
-      genderData
-    );
-
-    const gender2 = getGender(
-      targets[1],
-      genderData
-    );
+    const gender1 = getGender(targets[0], genderData);
+    const gender2 = getGender(targets[1], genderData);
 
     if (!gender1 || !gender2) {
       return api.sendMessage(
