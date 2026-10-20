@@ -1,4 +1,3 @@
-
 /**
  * File Name: kiss.js
  * ICA: igbot-api
@@ -40,19 +39,14 @@ function getMentionIDs(event) {
 
 function getReplyID(event) {
   const reply = event.messageReply || {};
-
-  return normalizeID(
-    reply.senderID || reply.senderId || ""
-  );
+  return normalizeID(reply.senderID || reply.senderId || "");
 }
 
 function extractUsernames(body) {
   const matches =
     String(body || "").match(/@([a-zA-Z0-9._]+)/g) || [];
 
-  return [
-    ...new Set(matches.map(name => name.slice(1)))
-  ];
+  return [...new Set(matches.map(name => name.slice(1)))];
 }
 
 async function resolveUsername(username, api) {
@@ -71,7 +65,6 @@ async function resolveUsername(username, api) {
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
-
       if (error) reject(error);
       else resolve(value);
     };
@@ -90,10 +83,7 @@ async function resolveUsername(username, api) {
           value => finish(null, value),
           error => finish(error)
         );
-      } else if (
-        returned !== undefined &&
-        returned !== null
-      ) {
+      } else if (returned !== undefined && returned !== null) {
         finish(null, returned);
       }
     } catch (error) {
@@ -152,16 +142,11 @@ async function getTargetIDs(event, api) {
 
     if (ids.every(Boolean)) return ids;
 
-    throw new Error(
-      "দুইজনের username resolve করা যায়নি।"
-    );
+    throw new Error("দুইজনের username resolve করা যায়নি।");
   }
 
   if (usernames.length === 1) {
-    const targetID = await resolveUsername(
-      usernames[0],
-      api
-    );
+    const targetID = await resolveUsername(usernames[0], api);
 
     if (!targetID) {
       throw new Error(
@@ -179,9 +164,6 @@ async function getTargetIDs(event, api) {
   return [];
 }
 
-/**
- * Add 🌚 reaction without delaying image processing.
- */
 function reactToCommand(api, event) {
   if (
     typeof api.setMessageReaction !== "function" ||
@@ -352,7 +334,8 @@ async function loadTemplate() {
 }
 
 /**
- * Creates a large circular DP using Jimp v1.6.1.
+ * Jimp v1.6.1 compatible circular avatar.
+ * Transparent corners are preserved when compositing.
  */
 async function loadAvatar(buffer, size) {
   const image = await Jimp.read(buffer);
@@ -362,26 +345,36 @@ async function loadAvatar(buffer, size) {
     h: size
   });
 
-  const mask = new Jimp({
+  const circle = new Jimp({
     width: size,
     height: size,
-    color: 0xFFFFFFFF
+    color: 0x00000000
   });
 
-  mask.scan(0, 0, size, size, function (x, y, idx) {
-    const dx = x + 0.5 - size / 2;
-    const dy = y + 0.5 - size / 2;
-    const radius = size / 2;
+  const source = image.bitmap.data;
+  const target = circle.bitmap.data;
 
-    this.bitmap.data[idx + 3] =
-      dx * dx + dy * dy <= radius * radius
-        ? 255
-        : 0;
-  });
+  const center = (size - 1) / 2;
+  const radius = size / 2;
+  const radiusSquared = radius * radius;
 
-  image.mask(mask);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - center;
+      const dy = y - center;
 
-  return image;
+      if (dx * dx + dy * dy <= radiusSquared) {
+        const index = (y * size + x) * 4;
+
+        target[index] = source[index];
+        target[index + 1] = source[index + 1];
+        target[index + 2] = source[index + 2];
+        target[index + 3] = source[index + 3];
+      }
+    }
+  }
+
+  return circle;
 }
 
 async function createKissImage(
@@ -392,7 +385,6 @@ async function createKissImage(
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  // Larger DPs; adjust this ratio if you want them bigger.
   const avatarSize = Math.round(
     Math.min(width, height) * 0.22
   );
@@ -429,14 +421,14 @@ async function createKissImage(
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.5.0",
+  version: "1.5.1",
   author: "Tanvir Ahmed (Tanvir143)",
-  countDown: 5,
+  cooldown: 5,
   role: 0,
   shortDescription: "Create a kiss image",
   longDescription:
     "Create a kiss image using registered genders and profile pictures.",
-  category: "fun",
+  category: "users cmd",
   guide: {
     en:
       "{pn} @mention\n" +
@@ -450,7 +442,6 @@ module.exports.onStart = async function ({ api, event }) {
   const threadID = event.threadID;
   const messageID = event.messageID;
 
-  // React immediately; do not wait for image generation.
   reactToCommand(api, event);
 
   try {
@@ -485,7 +476,6 @@ module.exports.onStart = async function ({ api, event }) {
     let gender1 = getGender(targets[0], genderData);
     let gender2 = getGender(targets[1], genderData);
 
-    // At least one registered gender is required.
     if (!gender1 && !gender2) {
       return api.sendMessage(
         REGISTER_MESSAGE,
@@ -517,7 +507,6 @@ module.exports.onStart = async function ({ api, event }) {
     const girlID =
       gender1 === "girl" ? targets[0] : targets[1];
 
-    // Load both profile pictures and the template together.
     const [boyBuffer, girlBuffer, template] =
       await Promise.all([
         getProfileImage(boyID, event, api),
@@ -531,10 +520,9 @@ module.exports.onStart = async function ({ api, event }) {
       girlBuffer
     );
 
-    // Text and image are sent together in one message.
     return api.sendMessage(
       {
-        body: "💋 Kiss time!",
+        body: "UmmmmmmAhhh🫦🌚..",
         attachment: imageBuffer
       },
       threadID,
