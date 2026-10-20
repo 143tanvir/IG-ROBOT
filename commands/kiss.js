@@ -4,641 +4,323 @@
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
- * Note: Uses the existing IG-ROBOT profile resolver and PairData.
  */
 
 "use strict";
 
-const fs = require("fs");
-const path = require("path");
-const sharp = require("sharp");
-
-const {
-	resolveProfile,
-	resolveUserTarget
-} = require("../src/utils");
+const axios = require("axios");
+const Jimp = require("jimp");
+const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/3laJwc1.jpg";
-const TEMPLATE_PATH = path.join(
-	__dirname,
-	"..",
-	"data",
-	"kiss-template.jpg"
-);
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
-const AVATAR_SIZE = 200;
-const REQUEST_TIMEOUT = 20000;
+const GAY_MESSAGE =
+  "🌈 Gay Detected!\nদুইজনই ছেলে, তাই kiss image তৈরি করা হয়নি।";
 
-module.exports = {
-	config: {
-		name: "kiss",
-		aliases: ["kiss3", "kissimg"],
-		version: "4.0.0",
-		author: "Tanvir143",
-		category: "Fun",
-		cooldown: 5,
-		role: 0,
-		description: {
-			en: "Create a kiss image using profile pictures."
-		},
-		usage: {
-			en: ".kiss @user | .kiss @user1 @user2 | Reply + .kiss"
-		}
-	},
+const LESBIAN_MESSAGE =
+  "🌈 Lesbian Detected!\nদুইজনই মেয়ে, তাই kiss image তৈরি করা হয়নি।";
 
-	onStart: async function ({
-		message,
-		args,
-		event,
-		api,
-		threadsData
-	}) {
-		try {
-			const senderID = String(
-				event.senderID || event.userID || ""
-			);
+const REGISTER_MESSAGE =
+  "❌ Gender পাওয়া যায়নি!\nআগে `.pair boy` অথবা `.pair girl` দিয়ে gender register করো।";
 
-			const threadID = String(event.threadID || "");
+function normalizeID(id) {
+  return String(id || "").replace(/[^0-9]/g, "");
+}
 
-			if (!senderID || !threadID) {
-				return message.reply(
-					"❌ Sender ID বা Thread ID পাওয়া যায়নি।"
-				);
-			}
+function getMentionIDs(event) {
+  const mentions = event.mentions || {};
+  return Object.keys(mentions).map(normalizeID).filter(Boolean);
+}
 
-			// Resolve targets using the actual mention metadata.
-			const targetIDs = await getTargetIDs(
-				args,
-				event,
-				api,
-				senderID
-			);
+function getReplyID(event) {
+  const messageReply = event.messageReply || {};
+  return normalizeID(
+    messageReply.senderID ||
+    messageReply.senderId ||
+    ""
+  );
+}
 
-			if (!targetIDs || targetIDs.length !== 2) {
-				return message.reply(
-					"💋 Kiss Image ব্যবহার:\n\n" +
-					"• .kiss @user\n" +
-					"• .kiss @user1 @user2\n" +
-					"• কোনো মেসেজে reply দিয়ে .kiss\n\n" +
-					"দুইজন ইউজার নির্বাচন করুন।"
-				);
-			}
+function getTargetIDs(event) {
+  const mentions = [...new Set(getMentionIDs(event))];
 
-			const [id1, id2] = targetIDs;
+  if (mentions.length >= 2) {
+    return mentions.slice(0, 2);
+  }
 
-			if (id1 === id2) {
-				return message.reply(
-					"❌ একই ইউজারকে দুইবার নির্বাচন করা যাবে না।"
-				);
-			}
+  if (mentions.length === 1) {
+    return [normalizeID(event.senderID), mentions[0]];
+  }
 
-			// Read gender registration from this group's PairData.
-			const pairCollection = getPairCollection(threadsData);
+  const replyID = getReplyID(event);
 
-			if (!pairCollection) {
-				console.error(
-					"[KISS] PairData collection পাওয়া যায়নি।"
-				);
-			}
+  if (replyID) {
+    return [normalizeID(event.senderID), replyID];
+  }
 
-			let pairData = null;
+  return [];
+}
 
-			if (pairCollection) {
-				pairData = await pairCollection.findOne({
-					threadID: threadID
-				});
-			}
+async function getPairCollection() {
+  const database = global.database;
 
-			const gender1 = getGender(id1, pairData);
-			const gender2 = getGender(id2, pairData);
+  if (!database) {
+    throw new Error("global.database পাওয়া যায়নি।");
+  }
 
-			console.log("[KISS GENDER CHECK]", {
-				threadID,
-				user1: id1,
-				gender1: gender1 || "unregistered",
-				user2: id2,
-				gender2: gender2 || "unregistered",
-				pairDataFound: Boolean(pairData)
-			});
+  if (database.ready) {
+    await database.ready;
+  }
 
-			// Both registered as the same gender: do not create an image.
-			if (gender1 && gender2 && gender1 === gender2) {
-				return message.reply(
-					gender1 === "girl"
-						? "🌈 Lesbian Detected"
-						: "🌈 Gay Detected"
-				);
-			}
+  const usersCollection =
+    database.users && database.users.collection;
 
-			// Bottom = boy, top = girl.
-			// If one gender is unknown, keep the known user's position.
-			let bottomID;
-			let topID;
+  if (
+    !usersCollection ||
+    !usersCollection.db ||
+    typeof usersCollection.db.collection !== "function"
+  ) {
+    throw new Error("MongoDB collection পাওয়া যায়নি।");
+  }
 
-			if (gender1 === "boy" && gender2 === "girl") {
-				bottomID = id1;
-				topID = id2;
-			}
-			else if (gender1 === "girl" && gender2 === "boy") {
-				bottomID = id2;
-				topID = id1;
-			}
-			else if (gender1 === "boy" && !gender2) {
-				bottomID = id1;
-				topID = id2;
-			}
-			else if (gender2 === "boy" && !gender1) {
-				bottomID = id2;
-				topID = id1;
-			}
-			else if (gender1 === "girl" && !gender2) {
-				topID = id1;
-				bottomID = id2;
-			}
-			else if (gender2 === "girl" && !gender1) {
-				topID = id2;
-				bottomID = id1;
-			}
-			else if (Math.random() < 0.5) {
-				bottomID = id1;
-				topID = id2;
-			}
-			else {
-				bottomID = id2;
-				topID = id1;
-			}
+  return usersCollection.db.collection("PairData");
+}
 
-			// Use the same profile resolver as pair.js.
-			const [bottomProfile, topProfile] = await Promise.all([
-				loadProfile(bottomID, event, api),
-				loadProfile(topID, event, api)
-			]);
+async function getRegisteredGenders(threadID) {
+  const collection = await getPairCollection();
 
-			if (!bottomProfile || !topProfile) {
-				return message.reply(
-					"❌ Profile লোড করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।"
-				);
-			}
+  const data = await collection.findOne({
+    _id: String(threadID)
+  });
 
-			const bottomPic = bottomProfile.profilePicture;
-			const topPic = topProfile.profilePicture;
+  if (!data) {
+    return {
+      boy: new Set(),
+      girl: new Set()
+    };
+  }
 
-			if (!bottomPic || !topPic) {
-				return message.reply(
-					"❌ একজন বা দুজনের profile picture পাওয়া যায়নি।"
-				);
-			}
+  return {
+    boy: new Set((data.boy || []).map(normalizeID)),
+    girl: new Set((data.girl || []).map(normalizeID))
+  };
+}
 
-			const [templateBuffer, bottomAvatar, topAvatar] =
-				await Promise.all([
-					getTemplate(),
-					downloadImage(bottomPic),
-					downloadImage(topPic)
-				]);
+function getGender(userID, genderData) {
+  const isBoy = genderData.boy.has(userID);
+  const isGirl = genderData.girl.has(userID);
 
-			const [bottomCircle, topCircle] = await Promise.all([
-				makeCircle(bottomAvatar, AVATAR_SIZE),
-				makeCircle(topAvatar, AVATAR_SIZE)
-			]);
+  if (isBoy && isGirl) {
+    throw new Error(
+      `User ${userID} দুইটি gender list-এই আছে। PairData ঠিক করো।`
+    );
+  }
 
-			const metadata = await sharp(templateBuffer).metadata();
+  if (isBoy) return "boy";
+  if (isGirl) return "girl";
 
-			if (!metadata.width || !metadata.height) {
-				throw new Error(
-					"Template image dimensions পাওয়া যায়নি।"
-				);
-			}
+  return null;
+}
 
-			// Original template positions.
-			const bottomPosition = {
-				left: 200,
-				top: 300
-			};
+async function getProfileImage(userID) {
+  const profile = await resolveProfile(userID);
 
-			const topPosition = {
-				left: 600,
-				top: 80
-			};
+  if (!profile) {
+    throw new Error(`User ${userID}-এর profile পাওয়া যায়নি।`);
+  }
 
-			for (const position of [
-				bottomPosition,
-				topPosition
-			]) {
-				if (
-					position.left + AVATAR_SIZE > metadata.width ||
-					position.top + AVATAR_SIZE > metadata.height
-				) {
-					throw new Error(
-						`Template size ${metadata.width}x${metadata.height}; ` +
-						"avatar positions template-এর বাইরে চলে যাচ্ছে।"
-					);
-				}
-			}
+  const imageURL =
+    profile.profilePicture ||
+    profile.avatar ||
+    profile.photoURL ||
+    profile.profilePic;
 
-			const output = await sharp(templateBuffer)
-				.composite([
-					{
-						input: bottomCircle,
-						left: bottomPosition.left,
-						top: bottomPosition.top
-					},
-					{
-						input: topCircle,
-						left: topPosition.left,
-						top: topPosition.top
-					}
-				])
-				.jpeg({ quality: 90 })
-				.toBuffer();
+  if (!imageURL || typeof imageURL !== "string") {
+    throw new Error(`User ${userID}-এর profile picture পাওয়া যায়নি।`);
+  }
 
-			const bottomName = cleanName(
-				bottomProfile.username || bottomID
-			);
+  const response = await axios.get(imageURL, {
+    responseType: "arraybuffer",
+    timeout: 20000,
+    maxContentLength: MAX_IMAGE_SIZE,
+    maxBodyLength: MAX_IMAGE_SIZE,
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
+  });
 
-			const topName = cleanName(
-				topProfile.username || topID
-			);
+  return Buffer.from(response.data);
+}
 
-			return message.reply({
-				body:
-					"💋 Kiss Time!\n\n" +
-					"💙 নিচে: @" + bottomName + "\n" +
-					"💗 উপরে: @" + topName,
-				attachment: output
-			});
-		}
-		catch (error) {
-			const status = error.status || error.response?.status;
-			const url = error.url || error.config?.url || "";
+async function loadTemplate() {
+  const response = await axios.get(TEMPLATE_URL, {
+    responseType: "arraybuffer",
+    timeout: 20000,
+    maxContentLength: MAX_IMAGE_SIZE,
+    maxBodyLength: MAX_IMAGE_SIZE,
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
+  });
 
-			console.error("[Tanvir143 | igBot] Kiss image error:", {
-				message: error.message || String(error),
-				status: status || null,
-				url: url ? url.split("?")[0] : null,
-				stack: error.stack || null
-			});
+  return Jimp.read(Buffer.from(response.data));
+}
 
-			if (
-				status === 429 ||
-				/\b429\b|too many requests/i.test(
-					error.message || ""
-				)
-			) {
-				return message.reply(
-					"⏳ Image server request limit করেছে (429)। " +
-					"কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন।"
-				);
-			}
+async function loadAvatar(buffer, size) {
+  const image = await Jimp.read(buffer);
 
-			return message.reply(
-				"❌ Kiss image তৈরি করা যায়নি।\n" +
-				"কারণ: " +
-				String(error.message || error).slice(0, 350)
-			);
-		}
-	}
+  image.cover(size, size);
+
+  const mask = new Jimp(size, size, 0x00000000);
+
+  mask.scan(0, 0, size, size, function (x, y, idx) {
+    const dx = x - size / 2;
+    const dy = y - size / 2;
+
+    if (dx * dx + dy * dy <= (size / 2) * (size / 2)) {
+      this.bitmap.data[idx + 3] = 255;
+    } else {
+      this.bitmap.data[idx + 3] = 0;
+    }
+  });
+
+  image.mask(mask, 0, 0);
+
+  return image;
+}
+
+async function createKissImage(
+  boyBuffer,
+  girlBuffer
+) {
+  const template = await loadTemplate();
+
+  const width = template.bitmap.width;
+  const height = template.bitmap.height;
+
+  /*
+   * These positions are suitable only if the template
+   * has its two avatar spaces near these locations.
+   * Adjust them to match your original template.
+   */
+  const avatarSize = Math.round(Math.min(width, height) * 0.24);
+
+  const boyX = Math.round(width * 0.62 - avatarSize / 2);
+  const boyY = Math.round(height * 0.57 - avatarSize / 2);
+
+  const girlX = Math.round(width * 0.28 - avatarSize / 2);
+  const girlY = Math.round(height * 0.23 - avatarSize / 2);
+
+  const boyAvatar = await loadAvatar(
+    boyBuffer,
+    avatarSize
+  );
+
+  const girlAvatar = await loadAvatar(
+    girlBuffer,
+    avatarSize
+  );
+
+  template.composite(girlAvatar, girlX, girlY);
+  template.composite(boyAvatar, boyX, boyY);
+
+  return template.getBufferAsync(Jimp.MIME_PNG);
+}
+
+module.exports.config = {
+  name: "kiss",
+  aliases: ["k"],
+  version: "1.0.0",
+  author: "Tanvir Ahmed (Tanvir143)",
+  countDown: 5,
+  role: 0,
+  shortDescription: "Create a kiss image",
+  longDescription: "Create a kiss image using registered genders and profile pictures.",
+  category: "fun",
+  guide: {
+    en: "{pn} @mention\n{pn} @user1 @user2\nReply to a message with {pn}"
+  }
 };
 
-
-/* =================================
-   TARGET USERS
-================================= */
-
-async function getTargetIDs(args, event, api, senderID) {
-	const mentions = event.mentions || {};
-
-	// Mention metadata generally maps user IDs to display names.
-	const mentionedIDs = Object.keys(mentions)
-		.map(String)
-		.filter(Boolean);
-
-	// Reply + .kiss: sender and replied-to user.
-	if (
-		event.messageReply &&
-		event.messageReply.senderID != null
-	) {
-		return uniqueIDs([
-			senderID,
-			String(event.messageReply.senderID)
-		]);
-	}
-
-	// One mention: sender + mentioned user.
-	if (mentionedIDs.length === 1) {
-		return uniqueIDs([
-			senderID,
-			mentionedIDs[0]
-		]);
-	}
-
-	// Two mentions: pair the two mentioned users.
-	if (mentionedIDs.length >= 2) {
-		return uniqueIDs(
-			mentionedIDs.slice(0, 2)
-		);
-	}
-
-	// Fallback for commands that provide IDs as arguments.
-	const input = Array.isArray(args)
-		? args
-			.map(value => String(value || "").trim())
-			.filter(Boolean)
-		: [];
-
-	const targets = [];
-
-	for (const arg of input) {
-		try {
-			const result = await resolveUserTarget(
-				[arg],
-				{
-					...event,
-					messageReply: null
-				},
-				api
-			);
-
-			if (result && result.id) {
-				const id = String(result.id);
-
-				if (!targets.includes(id)) {
-					targets.push(id);
-				}
-			}
-		}
-		catch (error) {
-			console.error(
-				"[KISS TARGET ERROR]",
-				error.message || error
-			);
-		}
-	}
-
-	if (targets.length === 1) {
-		return uniqueIDs([
-			senderID,
-			targets[0]
-		]);
-	}
-
-	return uniqueIDs(targets.slice(0, 2));
-}
-
-
-function uniqueIDs(ids) {
-	return [
-		...new Set(
-			(ids || [])
-				.map(value => String(value || "").trim())
-				.filter(Boolean)
-		)
-	];
-}
-
-
-/* =================================
-   PROFILE LOADER
-================================= */
-
-async function loadProfile(userID, event, api) {
-	try {
-		const fakeEvent = {
-			...event,
-			senderID: String(userID),
-			userID: String(userID),
-			messageReply: null,
-			mentions: {}
-		};
-
-		return await resolveProfile(
-			[String(userID)],
-			fakeEvent,
-			api
-		);
-	}
-	catch (error) {
-		console.error(
-			"[KISS PROFILE ERROR]",
-			String(userID),
-			error.message || error
-		);
-
-		return null;
-	}
-}
-
-
-/* =================================
-   MONGODB PAIR DATA
-================================= */
-
-function getPairCollection(threadsData) {
-	try {
-		const threadCollection =
-			threadsData && threadsData.collection;
-
-		const db = threadCollection && (
-			threadCollection.db ||
-			(threadCollection.s && threadCollection.s.db)
-		);
-
-		if (!db || typeof db.collection !== "function") {
-			return null;
-		}
-
-		return db.collection("PairData");
-	}
-	catch (error) {
-		console.error(
-			"[KISS PAIRDATA ERROR]",
-			error.message || error
-		);
-
-		return null;
-	}
-}
-
-
-function getGender(userID, pairData) {
-	if (!pairData) return null;
-
-	const id = String(userID).trim();
-
-	const boys = Array.isArray(pairData.boy)
-		? pairData.boy.map(value => String(value).trim())
-		: [];
-
-	const girls = Array.isArray(pairData.girl)
-		? pairData.girl.map(value => String(value).trim())
-		: [];
-
-	if (boys.includes(id)) return "boy";
-	if (girls.includes(id)) return "girl";
-
-	return null;
-}
-
-
-/* =================================
-   TEMPLATE CACHE
-================================= */
-
-async function getTemplate() {
-	try {
-		if (fs.existsSync(TEMPLATE_PATH)) {
-			const cached = fs.readFileSync(TEMPLATE_PATH);
-
-			await sharp(cached).metadata();
-
-			return cached;
-		}
-	}
-	catch (error) {
-		console.error(
-			"[KISS TEMPLATE CACHE ERROR]",
-			error.message || error
-		);
-	}
-
-	const buffer = await downloadImage(TEMPLATE_URL);
-
-	await sharp(buffer).metadata();
-
-	fs.mkdirSync(
-		path.dirname(TEMPLATE_PATH),
-		{ recursive: true }
-	);
-
-	fs.writeFileSync(TEMPLATE_PATH, buffer);
-
-	return buffer;
-}
-
-
-/* =================================
-   DOWNLOAD IMAGE
-================================= */
-
-async function downloadImage(url) {
-	if (!url || typeof url !== "string") {
-		throw new Error("Image URL পাওয়া যায়নি।");
-	}
-
-	const controller = new AbortController();
-
-	const timeout = setTimeout(
-		() => controller.abort(),
-		REQUEST_TIMEOUT
-	);
-
-	try {
-		const response = await fetch(url, {
-			method: "GET",
-			headers: {
-				"User-Agent":
-					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-					"AppleWebKit/537.36 (KHTML, like Gecko) " +
-					"Chrome/124.0 Safari/537.36",
-				"Accept":
-					"image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
-			},
-			signal: controller.signal,
-			redirect: "follow"
-		});
-
-		if (!response.ok) {
-			const error = new Error(
-				`Image download failed with HTTP ${response.status}`
-			);
-
-			error.status = response.status;
-			error.url = url;
-
-			throw error;
-		}
-
-		const contentType =
-			response.headers.get("content-type") || "";
-
-		if (
-			contentType &&
-			!contentType.startsWith("image/")
-		) {
-			const error = new Error(
-				"Image server returned " + contentType
-			);
-
-			error.status = response.status;
-			error.url = url;
-
-			throw error;
-		}
-
-		const buffer = Buffer.from(
-			await response.arrayBuffer()
-		);
-
-		if (!buffer.length) {
-			throw new Error("Downloaded image খালি।");
-		}
-
-		await sharp(buffer).metadata();
-
-		return buffer;
-	}
-	catch (error) {
-		if (!error.url) error.url = url;
-		throw error;
-	}
-	finally {
-		clearTimeout(timeout);
-	}
-}
-
-
-/* =================================
-   CIRCULAR AVATAR
-================================= */
-
-async function makeCircle(buffer, size) {
-	const mask = Buffer.from(`
-		<svg
-			width="${size}"
-			height="${size}"
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			<circle
-				cx="${size / 2}"
-				cy="${size / 2}"
-				r="${size / 2}"
-				fill="#ffffff"
-			/>
-		</svg>
-	`);
-
-	return sharp(buffer)
-		.resize(size, size, {
-			fit: "cover",
-			position: "centre"
-		})
-		.composite([
-			{
-				input: mask,
-				blend: "dest-in"
-			}
-		])
-		.png()
-		.toBuffer();
-}
-
-
-/* =================================
-   SAFE USERNAME
-================================= */
-
-function cleanName(value) {
-	return String(value || "user")
-		.replace(/^@+/, "")
-		.replace(/[\r\n]/g, "")
-		.slice(0, 40);
-}
+module.exports.onStart = async function ({
+  api,
+  event
+}) {
+  const threadID = event.threadID;
+  const messageID = event.messageID;
+
+  try {
+    const targets = getTargetIDs(event);
+
+    if (targets.length !== 2 || !targets[0] || !targets[1]) {
+      return api.sendMessage(
+        "💋 ব্যবহার: `.kiss @mention` অথবা দুইজনকে mention করো, অথবা কারও message-এ reply দিয়ে `.kiss` লেখো।",
+        threadID,
+        messageID
+      );
+    }
+
+    if (targets[0] === targets[1]) {
+      return api.sendMessage(
+        "❌ একই user-এর সঙ্গে kiss image তৈরি করা যাবে না।",
+        threadID,
+        messageID
+      );
+    }
+
+    const genderData = await getRegisteredGenders(threadID);
+
+    const gender1 = getGender(targets[0], genderData);
+    const gender2 = getGender(targets[1], genderData);
+
+    if (!gender1 || !gender2) {
+      return api.sendMessage(
+        REGISTER_MESSAGE,
+        threadID,
+        messageID
+      );
+    }
+
+    if (gender1 === gender2) {
+      return api.sendMessage(
+        gender1 === "boy" ? GAY_MESSAGE : LESBIAN_MESSAGE,
+        threadID,
+        messageID
+      );
+    }
+
+    const boyID = gender1 === "boy" ? targets[0] : targets[1];
+    const girlID = gender1 === "girl" ? targets[0] : targets[1];
+
+    const [boyBuffer, girlBuffer] = await Promise.all([
+      getProfileImage(boyID),
+      getProfileImage(girlID)
+    ]);
+
+    const imageBuffer = await createKissImage(
+      boyBuffer,
+      girlBuffer
+    );
+
+    return api.sendMessage(
+      {
+        body: "💋 Kiss time!",
+        attachment: Buffer.from(imageBuffer)
+      },
+      threadID,
+      messageID
+    );
+  } catch (error) {
+    console.error(
+      "[Tanvir143 | igBot] Kiss command error:",
+      error && error.stack ? error.stack : error
+    );
+
+    return api.sendMessage(
+      "❌ Kiss image তৈরি করা যায়নি। Template URL, profile picture, Jimp package এবং MongoDB connection পরীক্ষা করো।",
+      threadID,
+      messageID
+    );
+  }
+};
