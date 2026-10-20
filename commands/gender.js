@@ -1,16 +1,23 @@
+/**
+ * File Name: gender.js
+ * ICA: igbot-api
+ * Author: Tanvir Ahmed (Tanvir143)
+ * GitHub: www.github.com/143tanvir
+ */
+
 "use strict";
 
 const MAX_TARGETS = 50;
 
 module.exports.config = {
   name: "gender",
-  aliases: ["setg", "gnd"],
-  version: "2.0.0",
+  aliases: ["setgender", "gend"],
+  version: "2.1.0",
   author: "Tanvir Ahmed (Tanvir143)",
-  cooldown: 3,
+  countDown: 3,
   role: 0,
   shortDescription: "Register and manage gender",
-  longDescription: "Manage group gender registrations",
+  longDescription: "Manage group gender registrations using MongoDB",
   category: "Users Cmd",
   guide: "{pn} boy | girl | list"
 };
@@ -20,44 +27,61 @@ function normalizeID(id) {
 }
 
 function getArgs(event) {
-  return String(event.body || "").trim().split(/\s+/).slice(1);
+  return String(event.body || "")
+    .trim()
+    .split(/\s+/)
+    .slice(1);
 }
 
 async function getCollection() {
   const database = global.database;
 
   if (!database) {
-    throw new Error("MongoDB database connection পাওয়া যায়নি।");
+    throw new Error("global.database পাওয়া যায়নি।");
   }
 
-  if (database.ready) await database.ready;
+  if (database.ready) {
+    await database.ready;
+  }
 
   const usersCollection = database.users?.collection;
 
-  if (!usersCollection?.db?.collection) {
+  if (
+    !usersCollection ||
+    !usersCollection.db ||
+    typeof usersCollection.db.collection !== "function"
+  ) {
     throw new Error("MongoDB collection পাওয়া যায়নি।");
   }
 
   return usersCollection.db.collection("PairData");
 }
 
+async function ensureGroup(collection, threadID) {
+  await collection.updateOne(
+    { _id: normalizeID(threadID) },
+    {
+      $setOnInsert: {
+        boy: [],
+        girl: []
+      }
+    },
+    { upsert: true }
+  );
+}
+
 async function getGroupData(collection, threadID) {
-  const id = normalizeID(threadID);
-  let data = await collection.findOne({ _id: id });
-
-  if (!data) {
-    await collection.updateOne(
-      { _id: id },
-      { $setOnInsert: { boy: [], girl: [] } },
-      { upsert: true }
-    );
-
-    data = await collection.findOne({ _id: id });
-  }
+  const data = await collection.findOne({
+    _id: normalizeID(threadID)
+  });
 
   return {
-    boy: Array.isArray(data?.boy) ? data.boy.map(normalizeID) : [],
-    girl: Array.isArray(data?.girl) ? data.girl.map(normalizeID) : []
+    boy: Array.isArray(data?.boy)
+      ? data.boy.map(normalizeID)
+      : [],
+    girl: Array.isArray(data?.girl)
+      ? data.girl.map(normalizeID)
+      : []
   };
 }
 
@@ -75,7 +99,9 @@ function getUsernameTokens(args) {
 }
 
 async function resolveUsername(api, username) {
-  if (typeof api.getUserID !== "function") return null;
+  if (!api || typeof api.getUserID !== "function") {
+    return null;
+  }
 
   return new Promise(resolve => {
     let finished = false;
@@ -88,14 +114,21 @@ async function resolveUsername(api, username) {
         return resolve(null);
       }
 
-      if (Array.isArray(result)) result = result[0];
+      if (Array.isArray(result)) {
+        result = result[0];
+      }
 
       if (typeof result === "string" || typeof result === "number") {
         return resolve(normalizeID(result) || null);
       }
 
       if (typeof result === "object") {
-        const id = result.userID ?? result.userId ?? result.id ?? result.uid;
+        const id =
+          result.userID ??
+          result.userId ??
+          result.id ??
+          result.uid;
+
         return resolve(id == null ? null : normalizeID(id));
       }
 
@@ -113,13 +146,15 @@ async function resolveUsername(api, username) {
       const result = api.getUserID(username, callback);
 
       if (result && typeof result.then === "function") {
-        result.then(value => {
-          clearTimeout(timer);
-          finish(value);
-        }).catch(() => {
-          clearTimeout(timer);
-          finish(null);
-        });
+        result
+          .then(value => {
+            clearTimeout(timer);
+            finish(value);
+          })
+          .catch(() => {
+            clearTimeout(timer);
+            finish(null);
+          });
       } else if (
         typeof result === "string" ||
         typeof result === "number" ||
@@ -142,22 +177,34 @@ async function resolveTargets(args, event, api) {
     targets.add(normalizeID(event.messageReply.senderID));
   }
 
-  for (const username of getUsernameTokens(args)) {
+  const usernames = getUsernameTokens(args);
+
+  for (const username of usernames) {
     const id = await resolveUsername(api, username);
-    if (id) targets.add(id);
+
+    if (id) {
+      targets.add(id);
+    }
   }
 
   return [...targets].filter(Boolean);
 }
 
 function formatList(title, ids) {
-  if (!ids.length) return `${title}\n\nকেউ registered নেই।`;
+  if (!ids.length) {
+    return `${title}\n\nকেউ registered নেই।`;
+  }
 
   return `${title} (${ids.length})\n\n` +
     ids.map((id, index) => `${index + 1}. ${id}`).join("\n");
 }
 
-module.exports.onStart = async function ({ message, event, args, api }) {
+module.exports.onStart = async function ({
+  message,
+  event,
+  args,
+  api
+}) {
   const threadID = normalizeID(event.threadID);
   const senderID = normalizeID(event.senderID);
 
@@ -171,7 +218,11 @@ module.exports.onStart = async function ({ message, event, args, api }) {
   try {
     const collection = await getCollection();
 
-    if (action === "list" && params[1]?.toLowerCase() !== "all") {
+    // Current group gender list
+    if (
+      action === "list" &&
+      (params[1] || "").toLowerCase() !== "all"
+    ) {
       const data = await getGroupData(collection, threadID);
 
       return message.reply(
@@ -181,7 +232,11 @@ module.exports.onStart = async function ({ message, event, args, api }) {
       );
     }
 
-    if (action === "list" && params[1]?.toLowerCase() === "all") {
+    // All groups gender list
+    if (
+      action === "list" &&
+      (params[1] || "").toLowerCase() === "all"
+    ) {
       const documents = await collection.find({}).toArray();
       const boys = new Set();
       const girls = new Set();
@@ -206,20 +261,37 @@ module.exports.onStart = async function ({ message, event, args, api }) {
     if (!["boy", "girl"].includes(action)) {
       return message.reply(
         "📌 Gender Command\n\n" +
-        "নিজের gender: .gender boy / .gender girl\n" +
-        "অন্য user: .gender boy @username\n" +
-        "Remove: .gender boy rmv @username\n" +
-        "Group list: .gender list\n" +
-        "All groups: .gender list all"
+        ".gender boy\n" +
+        ".gender girl\n" +
+        ".gender boy @username\n" +
+        ".gender girl @username\n" +
+        ".gender boy rmv @username\n" +
+        ".gender girl rmv @username\n" +
+        ".gender list\n" +
+        ".gender list all"
       );
     }
 
     const gender = action;
     const otherGender = gender === "boy" ? "girl" : "boy";
 
-    let targets = await resolveTargets(params.slice(1), event, api);
+    const targetArgs = params.slice(isRemove ? 2 : 1);
+    let targets = await resolveTargets(targetArgs, event, api);
 
-    if (!targets.length) targets = [senderID];
+    const hasExplicitTarget =
+      getMentionIDs(event).length > 0 ||
+      getUsernameTokens(targetArgs).length > 0 ||
+      Boolean(event.messageReply?.senderID);
+
+    if (!targets.length) {
+      if (hasExplicitTarget) {
+        return message.reply(
+          "❌ Target user পাওয়া যায়নি। @mention অথবা message reply ব্যবহার করো।"
+        );
+      }
+
+      targets = [senderID];
+    }
 
     if (targets.length > MAX_TARGETS) {
       return message.reply(
@@ -227,8 +299,12 @@ module.exports.onStart = async function ({ message, event, args, api }) {
       );
     }
 
+    // FIX: Create the document separately to avoid conflicting updates.
+    await ensureGroup(collection, threadID);
+
+    const data = await getGroupData(collection, threadID);
+
     if (!isRemove) {
-      const data = await getGroupData(collection, threadID);
       const alreadyRegistered = [];
       const otherRegistered = [];
 
@@ -241,15 +317,17 @@ module.exports.onStart = async function ({ message, event, args, api }) {
       }
 
       if (alreadyRegistered.length || otherRegistered.length) {
-        let reply = "❌ Gender registration পরিবর্তন করা যায়নি।";
+        let reply = "❌ Gender registration করা যায়নি।";
 
         if (alreadyRegistered.length) {
-          reply += `\n\n${gender.toUpperCase()}-এ আগে থেকেই registered:\n` +
+          reply +=
+            `\n\n${gender.toUpperCase()}-এ আগে থেকেই registered:\n` +
             alreadyRegistered.join("\n");
         }
 
         if (otherRegistered.length) {
-          reply += `\n\n${otherGender.toUpperCase()}-এ আগে থেকেই registered:\n` +
+          reply +=
+            `\n\n${otherGender.toUpperCase()}-এ আগে থেকেই registered:\n` +
             otherRegistered.join("\n") +
             `\n\nআগে .gender ${otherGender} rmv @username দিয়ে remove করো।`;
         }
@@ -257,44 +335,55 @@ module.exports.onStart = async function ({ message, event, args, api }) {
         return message.reply(reply);
       }
 
+      // Add only after the document exists.
       await collection.updateOne(
         { _id: threadID },
         {
-          $addToSet: { [gender]: { $each: targets } },
-          $setOnInsert: { boy: [], girl: [] }
-        },
-        { upsert: true }
+          $addToSet: {
+            [gender]: { $each: targets }
+          }
+        }
       );
 
       return message.reply(
-        `✅ ${gender.toUpperCase()} registration complete!\n` +
-        `👥 Users: ${targets.length}`
+        `✅ ${gender.toUpperCase()} registration successful!\n` +
+        `👥 Registered: ${targets.length} user(s)`
+      );
+    }
+
+    // Remove selected users from the requested gender.
+    const existingTargets = targets.filter(id =>
+      data[gender].includes(id)
+    );
+
+    if (!existingTargets.length) {
+      return message.reply(
+        `ℹ️ এই group-এর ${gender.toUpperCase()} list-এ target user registered নেই।`
       );
     }
 
     await collection.updateOne(
       { _id: threadID },
-      { $pull: { [gender]: { $in: targets } } }
+      {
+        $pull: {
+          [gender]: { $in: existingTargets }
+        }
+      }
     );
-
-    const dataAfter = await getGroupData(collection, threadID);
-    const removed = targets.filter(id => !dataAfter[gender].includes(id));
-
-    if (!removed.length) {
-      return message.reply(
-        `ℹ️ এই group-এর ${gender.toUpperCase()} list-এ target user পাওয়া যায়নি।`
-      );
-    }
 
     return message.reply(
       `✅ ${gender.toUpperCase()} registration remove করা হয়েছে।\n` +
-      `👥 Removed users: ${removed.length}`
+      `👥 Removed: ${existingTargets.length} user(s)`
     );
   } catch (error) {
-    console.error("[Tanvir143 | igBot] gender.js error:", error);
+    console.error(
+      "[Tanvir143 | igBot] gender.js error:",
+      error
+    );
 
     return message.reply(
-      "❌ Gender command কাজ করেনি। MongoDB connection পরীক্ষা করো।"
+      "❌ Gender command failed.\n" +
+      "Error: " + String(error.message || error)
     );
   }
 };
