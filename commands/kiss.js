@@ -4,7 +4,7 @@
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
- * Note: Uses the existing IG-ROBOT profile resolver and Sharp.
+ * Note: Uses the existing IG-ROBOT profile resolver and PairData.
  */
 
 "use strict";
@@ -33,13 +33,13 @@ module.exports = {
 	config: {
 		name: "kiss",
 		aliases: ["kiss3", "kissimg"],
-		version: "3.0.0",
+		version: "4.0.0",
 		author: "Tanvir143",
 		category: "Fun",
 		cooldown: 5,
 		role: 0,
 		description: {
-			en: "Create a kiss image using user profile pictures."
+			en: "Create a kiss image using profile pictures."
 		},
 		usage: {
 			en: ".kiss @user | .kiss @user1 @user2 | Reply + .kiss"
@@ -60,14 +60,13 @@ module.exports = {
 
 			const threadID = String(event.threadID || "");
 
-			if (!senderID) {
+			if (!senderID || !threadID) {
 				return message.reply(
-					"❌ Sender ID পাওয়া যায়নি।"
+					"❌ Sender ID বা Thread ID পাওয়া যায়নি।"
 				);
 			}
 
-			// Resolve the two people: reply, one target + sender,
-			// or two explicit targets.
+			// Resolve targets using the actual mention metadata.
 			const targetIDs = await getTargetIDs(
 				args,
 				event,
@@ -81,7 +80,7 @@ module.exports = {
 					"• .kiss @user\n" +
 					"• .kiss @user1 @user2\n" +
 					"• কোনো মেসেজে reply দিয়ে .kiss\n\n" +
-					"দুইজন আলাদা ইউজার নির্বাচন করুন।"
+					"দুইজন ইউজার নির্বাচন করুন।"
 				);
 			}
 
@@ -93,23 +92,36 @@ module.exports = {
 				);
 			}
 
-			// Load the PairData record for this group.
-			const pairCollection = getPairCollection(
-				threadsData
-			);
+			// Read gender registration from this group's PairData.
+			const pairCollection = getPairCollection(threadsData);
+
+			if (!pairCollection) {
+				console.error(
+					"[KISS] PairData collection পাওয়া যায়নি।"
+				);
+			}
 
 			let pairData = null;
 
-			if (pairCollection && threadID) {
+			if (pairCollection) {
 				pairData = await pairCollection.findOne({
-					threadID
+					threadID: threadID
 				});
 			}
 
 			const gender1 = getGender(id1, pairData);
 			const gender2 = getGender(id2, pairData);
 
-			// Reject same-gender pairs only when both are registered.
+			console.log("[KISS GENDER CHECK]", {
+				threadID,
+				user1: id1,
+				gender1: gender1 || "unregistered",
+				user2: id2,
+				gender2: gender2 || "unregistered",
+				pairDataFound: Boolean(pairData)
+			});
+
+			// Both registered as the same gender: do not create an image.
 			if (gender1 && gender2 && gender1 === gender2) {
 				return message.reply(
 					gender1 === "girl"
@@ -118,8 +130,8 @@ module.exports = {
 				);
 			}
 
-			// The bottom position is for a boy, the upper position
-			// is for a girl. If a gender is unknown, choose randomly.
+			// Bottom = boy, top = girl.
+			// If one gender is unknown, keep the known user's position.
 			let bottomID;
 			let topID;
 
@@ -168,21 +180,20 @@ module.exports = {
 				);
 			}
 
-			if (
-				!bottomProfile.profilePicture ||
-				!topProfile.profilePicture
-			) {
+			const bottomPic = bottomProfile.profilePicture;
+			const topPic = topProfile.profilePicture;
+
+			if (!bottomPic || !topPic) {
 				return message.reply(
 					"❌ একজন বা দুজনের profile picture পাওয়া যায়নি।"
 				);
 			}
 
-			// Download/cache the template, then download both avatars.
 			const [templateBuffer, bottomAvatar, topAvatar] =
 				await Promise.all([
 					getTemplate(),
-					downloadImage(bottomProfile.profilePicture),
-					downloadImage(topProfile.profilePicture)
+					downloadImage(bottomPic),
+					downloadImage(topPic)
 				]);
 
 			const [bottomCircle, topCircle] = await Promise.all([
@@ -193,10 +204,12 @@ module.exports = {
 			const metadata = await sharp(templateBuffer).metadata();
 
 			if (!metadata.width || !metadata.height) {
-				throw new Error("Template image dimensions could not be read.");
+				throw new Error(
+					"Template image dimensions পাওয়া যায়নি।"
+				);
 			}
 
-			// Keep the positions from the original kiss3 template.
+			// Original template positions.
 			const bottomPosition = {
 				left: 200,
 				top: 300
@@ -207,16 +220,17 @@ module.exports = {
 				top: 80
 			};
 
-			// Avoid a cryptic Sharp error if the template is smaller
-			// than the expected original canvas.
-			for (const position of [bottomPosition, topPosition]) {
+			for (const position of [
+				bottomPosition,
+				topPosition
+			]) {
 				if (
 					position.left + AVATAR_SIZE > metadata.width ||
 					position.top + AVATAR_SIZE > metadata.height
 				) {
 					throw new Error(
-						`Template is ${metadata.width}x${metadata.height}; ` +
-						"the configured avatar positions do not fit."
+						`Template size ${metadata.width}x${metadata.height}; ` +
+						"avatar positions template-এর বাইরে চলে যাচ্ছে।"
 					);
 				}
 			}
@@ -237,17 +251,25 @@ module.exports = {
 				.jpeg({ quality: 90 })
 				.toBuffer();
 
+			const bottomName = cleanName(
+				bottomProfile.username || bottomID
+			);
+
+			const topName = cleanName(
+				topProfile.username || topID
+			);
+
 			return message.reply({
 				body:
 					"💋 Kiss Time!\n\n" +
-					"💙 নিচে: @" + cleanName(bottomProfile.username || bottomID) +
-					"\n💗 উপরে: @" + cleanName(topProfile.username || topID),
+					"💙 নিচে: @" + bottomName + "\n" +
+					"💗 উপরে: @" + topName,
 				attachment: output
 			});
 		}
 		catch (error) {
-			const status = error.response?.status;
-			const url = error.url || "";
+			const status = error.status || error.response?.status;
+			const url = error.url || error.config?.url || "";
 
 			console.error("[Tanvir143 | igBot] Kiss image error:", {
 				message: error.message || String(error),
@@ -256,7 +278,12 @@ module.exports = {
 				stack: error.stack || null
 			});
 
-			if (status === 429 || /\b429\b|too many requests/i.test(error.message || "")) {
+			if (
+				status === 429 ||
+				/\b429\b|too many requests/i.test(
+					error.message || ""
+				)
+			) {
 				return message.reply(
 					"⏳ Image server request limit করেছে (429)। " +
 					"কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন।"
@@ -265,7 +292,8 @@ module.exports = {
 
 			return message.reply(
 				"❌ Kiss image তৈরি করা যায়নি।\n" +
-				"কারণ: " + String(error.message || error).slice(0, 400)
+				"কারণ: " +
+				String(error.message || error).slice(0, 350)
 			);
 		}
 	}
@@ -277,37 +305,56 @@ module.exports = {
 ================================= */
 
 async function getTargetIDs(args, event, api, senderID) {
-	const input = Array.isArray(args)
-		? args.map(value => String(value || "").trim()).filter(Boolean)
-		: [];
+	const mentions = event.mentions || {};
 
-	// Reply + command: sender and replied-to user.
-	if (event.messageReply && event.messageReply.senderID != null) {
+	// Mention metadata generally maps user IDs to display names.
+	const mentionedIDs = Object.keys(mentions)
+		.map(String)
+		.filter(Boolean);
+
+	// Reply + .kiss: sender and replied-to user.
+	if (
+		event.messageReply &&
+		event.messageReply.senderID != null
+	) {
 		return uniqueIDs([
 			senderID,
 			String(event.messageReply.senderID)
 		]);
 	}
 
-	// One target: sender and target.
-	// Two targets: the two selected users.
-	if (input.length === 0) return [];
+	// One mention: sender + mentioned user.
+	if (mentionedIDs.length === 1) {
+		return uniqueIDs([
+			senderID,
+			mentionedIDs[0]
+		]);
+	}
+
+	// Two mentions: pair the two mentioned users.
+	if (mentionedIDs.length >= 2) {
+		return uniqueIDs(
+			mentionedIDs.slice(0, 2)
+		);
+	}
+
+	// Fallback for commands that provide IDs as arguments.
+	const input = Array.isArray(args)
+		? args
+			.map(value => String(value || "").trim())
+			.filter(Boolean)
+		: [];
 
 	const targets = [];
 
 	for (const arg of input) {
-		if (targets.length >= 2) break;
-
-		const cleanEvent = {
-			...event,
-			messageReply: null,
-			mentions: {}
-		};
-
 		try {
 			const result = await resolveUserTarget(
 				[arg],
-				cleanEvent,
+				{
+					...event,
+					messageReply: null
+				},
 				api
 			);
 
@@ -320,23 +367,32 @@ async function getTargetIDs(args, event, api, senderID) {
 			}
 		}
 		catch (error) {
-			console.error("[KISS TARGET ERROR]", error.message || error);
+			console.error(
+				"[KISS TARGET ERROR]",
+				error.message || error
+			);
 		}
 	}
 
 	if (targets.length === 1) {
-		return uniqueIDs([senderID, targets[0]]);
+		return uniqueIDs([
+			senderID,
+			targets[0]
+		]);
 	}
 
-	return uniqueIDs(targets);
+	return uniqueIDs(targets.slice(0, 2));
 }
 
+
 function uniqueIDs(ids) {
-	return [...new Set(
-		(ids || [])
-			.map(value => String(value || "").trim())
-			.filter(Boolean)
-	)];
+	return [
+		...new Set(
+			(ids || [])
+				.map(value => String(value || "").trim())
+				.filter(Boolean)
+		)
+	];
 }
 
 
@@ -354,17 +410,11 @@ async function loadProfile(userID, event, api) {
 			mentions: {}
 		};
 
-		const profile = await resolveProfile(
+		return await resolveProfile(
 			[String(userID)],
 			fakeEvent,
 			api
 		);
-
-		if (!profile || profile.rateLimited) {
-			return null;
-		}
-
-		return profile;
 	}
 	catch (error) {
 		console.error(
@@ -379,7 +429,7 @@ async function loadProfile(userID, event, api) {
 
 
 /* =================================
-   PAIR DATA / GENDER
+   MONGODB PAIR DATA
 ================================= */
 
 function getPairCollection(threadsData) {
@@ -399,22 +449,27 @@ function getPairCollection(threadsData) {
 		return db.collection("PairData");
 	}
 	catch (error) {
-		console.error("[KISS PAIRDATA ERROR]", error.message || error);
+		console.error(
+			"[KISS PAIRDATA ERROR]",
+			error.message || error
+		);
+
 		return null;
 	}
 }
 
+
 function getGender(userID, pairData) {
 	if (!pairData) return null;
 
-	const id = String(userID);
+	const id = String(userID).trim();
 
 	const boys = Array.isArray(pairData.boy)
-		? pairData.boy.map(String)
+		? pairData.boy.map(value => String(value).trim())
 		: [];
 
 	const girls = Array.isArray(pairData.girl)
-		? pairData.girl.map(String)
+		? pairData.girl.map(value => String(value).trim())
 		: [];
 
 	if (boys.includes(id)) return "boy";
@@ -429,7 +484,6 @@ function getGender(userID, pairData) {
 ================================= */
 
 async function getTemplate() {
-	// Use the cached template when it is already available.
 	try {
 		if (fs.existsSync(TEMPLATE_PATH)) {
 			const cached = fs.readFileSync(TEMPLATE_PATH);
@@ -446,14 +500,14 @@ async function getTemplate() {
 		);
 	}
 
-	// Download only when no valid local copy exists.
 	const buffer = await downloadImage(TEMPLATE_URL);
 
 	await sharp(buffer).metadata();
 
-	fs.mkdirSync(path.dirname(TEMPLATE_PATH), {
-		recursive: true
-	});
+	fs.mkdirSync(
+		path.dirname(TEMPLATE_PATH),
+		{ recursive: true }
+	);
 
 	fs.writeFileSync(TEMPLATE_PATH, buffer);
 
@@ -467,7 +521,7 @@ async function getTemplate() {
 
 async function downloadImage(url) {
 	if (!url || typeof url !== "string") {
-		throw new Error("Image URL is missing.");
+		throw new Error("Image URL পাওয়া যায়নি।");
 	}
 
 	const controller = new AbortController();
@@ -485,7 +539,8 @@ async function downloadImage(url) {
 					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
 					"AppleWebKit/537.36 (KHTML, like Gecko) " +
 					"Chrome/124.0 Safari/537.36",
-				"Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+				"Accept":
+					"image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
 			},
 			signal: controller.signal,
 			redirect: "follow"
@@ -502,30 +557,37 @@ async function downloadImage(url) {
 			throw error;
 		}
 
-		const contentType = response.headers.get("content-type") || "";
+		const contentType =
+			response.headers.get("content-type") || "";
 
-		if (contentType && !contentType.startsWith("image/")) {
-			throw new Error(
-				"Expected an image but server returned " + contentType
+		if (
+			contentType &&
+			!contentType.startsWith("image/")
+		) {
+			const error = new Error(
+				"Image server returned " + contentType
 			);
+
+			error.status = response.status;
+			error.url = url;
+
+			throw error;
 		}
 
-		const buffer = Buffer.from(await response.arrayBuffer());
+		const buffer = Buffer.from(
+			await response.arrayBuffer()
+		);
 
 		if (!buffer.length) {
-			throw new Error("Downloaded image is empty.");
+			throw new Error("Downloaded image খালি।");
 		}
 
-		// Verify that Sharp can decode the returned data.
 		await sharp(buffer).metadata();
 
 		return buffer;
 	}
 	catch (error) {
-		if (error.status) {
-			error.url = error.url || url;
-		}
-
+		if (!error.url) error.url = url;
 		throw error;
 	}
 	finally {
@@ -539,9 +601,18 @@ async function downloadImage(url) {
 ================================= */
 
 async function makeCircle(buffer, size) {
-	const circleMask = Buffer.from(`
-		<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-			<circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#ffffff"/>
+	const mask = Buffer.from(`
+		<svg
+			width="${size}"
+			height="${size}"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<circle
+				cx="${size / 2}"
+				cy="${size / 2}"
+				r="${size / 2}"
+				fill="#ffffff"
+			/>
 		</svg>
 	`);
 
@@ -552,7 +623,7 @@ async function makeCircle(buffer, size) {
 		})
 		.composite([
 			{
-				input: circleMask,
+				input: mask,
 				blend: "dest-in"
 			}
 		])
@@ -562,7 +633,7 @@ async function makeCircle(buffer, size) {
 
 
 /* =================================
-   SAFE DISPLAY NAME
+   SAFE USERNAME
 ================================= */
 
 function cleanName(value) {
