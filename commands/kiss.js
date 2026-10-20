@@ -46,22 +46,23 @@ function getReplyID(event) {
   );
 }
 
-/**
- * Resolve a literal username using the bot API.
- * Actual mentions are handled separately through event.mentions.
- */
+function extractUsernames(body) {
+  const matches =
+    String(body || "").match(/@([a-zA-Z0-9._]+)/g) || [];
+
+  return [
+    ...new Set(matches.map(name => name.slice(1)))
+  ];
+}
+
 async function resolveUsername(username, api) {
   const cleanName = String(username || "")
     .trim()
     .replace(/^@+/, "")
     .replace(/[,\s]+$/, "");
 
-  if (!cleanName) return null;
-
-  if (typeof api.getUserID !== "function") {
-    throw new Error(
-      "এই ICA-তে username lookup-এর জন্য api.getUserID পাওয়া যায়নি।"
-    );
+  if (!cleanName || typeof api.getUserID !== "function") {
+    return null;
   }
 
   const result = await new Promise((resolve, reject) => {
@@ -80,11 +81,6 @@ async function resolveUsername(username, api) {
         cleanName,
         (error, data) => {
           if (error) return finish(error);
-
-          if (data instanceof Error) {
-            return finish(data);
-          }
-
           finish(null, data);
         }
       );
@@ -133,17 +129,6 @@ async function resolveUsername(username, api) {
   return null;
 }
 
-function extractUsernames(body) {
-  const text = String(body || "");
-  const matches = text.match(/@([a-zA-Z0-9._]+)/g) || [];
-
-  return [
-    ...new Set(
-      matches.map(name => name.replace(/^@/, ""))
-    )
-  ];
-}
-
 async function getTargetIDs(event, api) {
   const senderID = normalizeID(event.senderID);
   const mentions = getMentionIDs(event);
@@ -156,22 +141,19 @@ async function getTargetIDs(event, api) {
     return [senderID, mentions[0]];
   }
 
-  const body = String(event.body || "");
-  const usernames = extractUsernames(body);
+  const usernames = extractUsernames(event.body);
 
   if (usernames.length >= 2) {
-    const resolved = await Promise.all(
+    const ids = await Promise.all(
       usernames.slice(0, 2).map(name =>
         resolveUsername(name, api)
       )
     );
 
-    if (resolved.every(Boolean)) {
-      return resolved;
-    }
+    if (ids.every(Boolean)) return ids;
 
     throw new Error(
-      "দুইজনের username resolve করা যায়নি। সঠিক username বা mention ব্যবহার করো।"
+      "দুইজনের username resolve করা যায়নি।"
     );
   }
 
@@ -192,11 +174,42 @@ async function getTargetIDs(event, api) {
 
   const replyID = getReplyID(event);
 
-  if (replyID) {
-    return [senderID, replyID];
-  }
+  if (replyID) return [senderID, replyID];
 
   return [];
+}
+
+/**
+ * Add 🌚 reaction without delaying image processing.
+ */
+function reactToCommand(api, event) {
+  if (
+    typeof api.setMessageReaction !== "function" ||
+    !event.messageID
+  ) {
+    return;
+  }
+
+  try {
+    api.setMessageReaction(
+      "🌚",
+      event.messageID,
+      error => {
+        if (error) {
+          console.warn(
+            "[Tanvir143 | igBot] Kiss reaction failed:",
+            error.message || error
+          );
+        }
+      },
+      true
+    );
+  } catch (error) {
+    console.warn(
+      "[Tanvir143 | igBot] Kiss reaction failed:",
+      error.message || error
+    );
+  }
 }
 
 async function getPairCollection() {
@@ -294,7 +307,7 @@ async function getProfileImage(userID, event, api) {
 
   const response = await axios.get(imageURL, {
     responseType: "arraybuffer",
-    timeout: 20000,
+    timeout: 15000,
     maxContentLength: MAX_IMAGE_SIZE,
     maxBodyLength: MAX_IMAGE_SIZE,
     headers: {
@@ -316,7 +329,7 @@ async function getProfileImage(userID, event, api) {
 async function downloadImage(url) {
   const response = await axios.get(url, {
     responseType: "arraybuffer",
-    timeout: 20000,
+    timeout: 15000,
     maxContentLength: MAX_IMAGE_SIZE,
     maxBodyLength: MAX_IMAGE_SIZE,
     headers: {
@@ -339,7 +352,7 @@ async function loadTemplate() {
 }
 
 /**
- * Circular avatar using Jimp v1.6.1.
+ * Creates a large circular DP using Jimp v1.6.1.
  */
 async function loadAvatar(buffer, size) {
   const image = await Jimp.read(buffer);
@@ -371,45 +384,52 @@ async function loadAvatar(buffer, size) {
   return image;
 }
 
-async function createKissImage(boyBuffer, girlBuffer) {
-  const template = await loadTemplate();
-
+async function createKissImage(
+  template,
+  boyBuffer,
+  girlBuffer
+) {
   const width = template.bitmap.width;
   const height = template.bitmap.height;
 
-  // Larger circular DPs, centered on the yellow markers.
+  // Larger DPs; adjust this ratio if you want them bigger.
   const avatarSize = Math.round(
-    Math.min(width, height) * 0.17
+    Math.min(width, height) * 0.22
   );
 
   // Girl: upper yellow marker.
-  const girlX = Math.round(width * 0.434 - avatarSize / 2);
-  const girlY = Math.round(height * 0.134 - avatarSize / 2);
+  const girlX = Math.round(
+    width * 0.434 - avatarSize / 2
+  );
+
+  const girlY = Math.round(
+    height * 0.134 - avatarSize / 2
+  );
 
   // Boy: lower-left yellow marker.
-  const boyX = Math.round(width * 0.118 - avatarSize / 2);
-  const boyY = Math.round(height * 0.542 - avatarSize / 2);
-
-  const girlAvatar = await loadAvatar(
-    girlBuffer,
-    avatarSize
+  const boyX = Math.round(
+    width * 0.118 - avatarSize / 2
   );
 
-  const boyAvatar = await loadAvatar(
-    boyBuffer,
-    avatarSize
+  const boyY = Math.round(
+    height * 0.542 - avatarSize / 2
   );
+
+  const [girlAvatar, boyAvatar] = await Promise.all([
+    loadAvatar(girlBuffer, avatarSize),
+    loadAvatar(boyBuffer, avatarSize)
+  ]);
 
   template.composite(girlAvatar, girlX, girlY);
   template.composite(boyAvatar, boyX, boyY);
 
-  return await template.getBuffer("image/png");
+  return template.getBuffer("image/png");
 }
 
 module.exports.config = {
   name: "kiss",
   aliases: ["k"],
-  version: "1.4.0",
+  version: "1.5.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
@@ -429,6 +449,9 @@ module.exports.config = {
 module.exports.onStart = async function ({ api, event }) {
   const threadID = event.threadID;
   const messageID = event.messageID;
+
+  // React immediately; do not wait for image generation.
+  reactToCommand(api, event);
 
   try {
     const targets = await getTargetIDs(event, api);
@@ -462,8 +485,7 @@ module.exports.onStart = async function ({ api, event }) {
     let gender1 = getGender(targets[0], genderData);
     let gender2 = getGender(targets[1], genderData);
 
-    // If only one gender is registered, infer the other
-    // as the opposite gender for this command only.
+    // At least one registered gender is required.
     if (!gender1 && !gender2) {
       return api.sendMessage(
         REGISTER_MESSAGE,
@@ -472,6 +494,7 @@ module.exports.onStart = async function ({ api, event }) {
       );
     }
 
+    // Infer the opposite gender for this command only.
     if (gender1 && !gender2) {
       gender2 = gender1 === "boy" ? "girl" : "boy";
     } else if (!gender1 && gender2) {
@@ -494,16 +517,21 @@ module.exports.onStart = async function ({ api, event }) {
     const girlID =
       gender1 === "girl" ? targets[0] : targets[1];
 
-    const [boyBuffer, girlBuffer] = await Promise.all([
-      getProfileImage(boyID, event, api),
-      getProfileImage(girlID, event, api)
-    ]);
+    // Load both profile pictures and the template together.
+    const [boyBuffer, girlBuffer, template] =
+      await Promise.all([
+        getProfileImage(boyID, event, api),
+        getProfileImage(girlID, event, api),
+        loadTemplate()
+      ]);
 
     const imageBuffer = await createKissImage(
+      template,
       boyBuffer,
       girlBuffer
     );
 
+    // Text and image are sent together in one message.
     return api.sendMessage(
       {
         body: "💋 Kiss time!",
