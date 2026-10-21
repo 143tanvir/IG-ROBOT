@@ -9,10 +9,22 @@
 
 const axios = require("axios");
 const sharp = require("sharp");
+const fontkit = require("fontkit");
+const fs = require("fs");
+const path = require("path");
 const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/a5kHNs2.png";
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const USERNAME_FONT_SIZE = 34;
+
+const FONT_PATHS = [
+  path.join(__dirname, "../assets/Roboto-Regular.ttf"),
+  path.join(__dirname, "../assets/fonts/Roboto-Regular.ttf"),
+  path.join(__dirname, "../assets/Roboto.ttf"),
+  path.join(__dirname, "../assets/fonts/Roboto.ttf"),
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+];
 
 function normalizeID(id) {
   return String(id || "").replace(/[^0-9]/g, "");
@@ -106,7 +118,9 @@ async function resolveUsername(username, api) {
 async function getTarget(event, api) {
   const mentions = getMentionIDs(event);
 
-  if (mentions.length) return mentions[0];
+  if (mentions.length) {
+    return mentions[0];
+  }
 
   const usernames = extractUsernames(event.body);
 
@@ -224,13 +238,61 @@ async function getAvatarBuffer(profile) {
   return downloadImage(url);
 }
 
-function escapeXML(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+function loadFont() {
+  const fontPath = FONT_PATHS.find(file => fs.existsSync(file));
+
+  if (!fontPath) {
+    throw new Error(
+      "Roboto font পাওয়া যায়নি। assets/Roboto-Regular.ttf ফাইলটি যোগ করো।"
+    );
+  }
+
+  return fontkit.openSync(fontPath);
+}
+
+/**
+ * Render actual font glyph paths instead of SVG text.
+ * This avoids missing-font square characters.
+ */
+function createUsernameSVG(username, width, height, centerX, baselineY) {
+  const font = loadFont();
+  const text = String(username || "Instagram User")
+    .replace(/^@/, "")
+    .slice(0, 40);
+
+  const run = font.layout(text);
+  const scale = USERNAME_FONT_SIZE / font.unitsPerEm;
+  const textWidth = run.advanceWidth * scale;
+  const startX = centerX - textWidth / 2;
+
+  let cursorX = 0;
+  let paths = "";
+
+  for (let i = 0; i < run.glyphs.length; i++) {
+    const glyph = run.glyphs[i];
+    const position = run.positions[i];
+    const glyphPath = glyph.path.toSVG();
+
+    paths += `
+      <path
+        transform="translate(${cursorX},${-position.yOffset})"
+        d="${glyphPath.replace(/<path[^>]*d="([^"]*)"[^>]*>/, "$1")}"
+      />
+    `;
+
+    cursorX += position.xAdvance;
+  }
+
+  return Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg"
+      width="${width}" height="${height}">
+      <g
+        transform="translate(${startX},${baselineY}) scale(${scale},-${scale})"
+        fill="#FFFFFF">
+        ${paths}
+      </g>
+    </svg>
+  `);
 }
 
 async function createHackImage(
@@ -238,9 +300,7 @@ async function createHackImage(
   avatarBuffer,
   username
 ) {
-  const template = sharp(templateBuffer);
-  const metadata = await template.metadata();
-
+  const metadata = await sharp(templateBuffer).metadata();
   const width = metadata.width;
   const height = metadata.height;
 
@@ -248,19 +308,19 @@ async function createHackImage(
     throw new Error("Template image-এর dimensions পাওয়া যায়নি।");
   }
 
-  // Position and size are proportional to the template.
-  const avatarSize = Math.round(width * 0.25);
+  // Slightly smaller DP and moved a little upward.
+  const avatarSize = Math.round(width * 0.22);
   const centerX = Math.round(width * 0.5);
-  const centerY = Math.round(height * 0.454);
+  const centerY = Math.round(height * 0.448);
 
-  // Resize DP to a square and convert it to a circle.
   const circleMask = Buffer.from(`
     <svg xmlns="http://www.w3.org/2000/svg"
       width="${avatarSize}" height="${avatarSize}">
-      <circle cx="${avatarSize / 2}"
+      <circle
+        cx="${avatarSize / 2}"
         cy="${avatarSize / 2}"
         r="${avatarSize / 2}"
-        fill="white"/>
+        fill="#FFFFFF"/>
     </svg>
   `);
 
@@ -282,32 +342,18 @@ async function createHackImage(
   const avatarX = Math.round(centerX - avatarSize / 2);
   const avatarY = Math.round(centerY - avatarSize / 2);
 
-  const cleanUsername = escapeXML(
-    String(username || "Instagram User")
-      .replace(/^@/, "")
-      .slice(0, 40)
+  // White username, exactly 34px.
+  const usernameBaseline =
+    avatarY + avatarSize + Math.round(height * 0.012) +
+    USERNAME_FONT_SIZE;
+
+  const usernameSVG = createUsernameSVG(
+    username,
+    width,
+    height,
+    centerX,
+    usernameBaseline
   );
-
-  const fontSize = Math.max(
-    12,
-    Math.round(width * 0.035)
-  );
-
-  const textY = avatarY + avatarSize + Math.round(height * 0.012);
-
-  const usernameSVG = Buffer.from(`
-    <svg xmlns="http://www.w3.org/2000/svg"
-      width="${width}" height="${height}">
-      <text
-        x="${centerX}"
-        y="${textY + fontSize}"
-        font-family="Arial, sans-serif"
-        font-size="${fontSize}"
-        font-weight="600"
-        fill="#262626"
-        text-anchor="middle">${cleanUsername}</text>
-    </svg>
-  `);
 
   return sharp(templateBuffer)
     .composite([
@@ -359,7 +405,7 @@ function setReaction(api, event, emoji) {
 module.exports.config = {
   name: "hack",
   aliases: ["fakehack"],
-  version: "1.0.1",
+  version: "1.0.2",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
@@ -409,7 +455,6 @@ module.exports.onStart = async function ({ api, event }) {
       username
     );
 
-    // Send the generated image.
     api.sendMessage(
       {
         body: "",
