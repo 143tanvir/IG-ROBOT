@@ -9,24 +9,27 @@
 
 const axios = require("axios");
 const sharp = require("sharp");
+const fontkit = require("fontkit");
 const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/a5kHNs2.png";
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const USERNAME_FONT_SIZE = 34;
+
+const USERNAME_FONT_SIZE = 54;
+const USERNAME_EXTRA_DOWN = 7;
 const AVATAR_EXTRA_SIZE = 7;
+
+// Same font-rendering method used in gcimg.js.
+const REGULAR_FONT = fontkit.openSync(
+  require.resolve("@fontsource/roboto/files/roboto-latin-400-normal.woff")
+);
+
+const BOLD_FONT = fontkit.openSync(
+  require.resolve("@fontsource/roboto/files/roboto-latin-700-normal.woff")
+);
 
 function normalizeID(id) {
   return String(id || "").replace(/[^0-9]/g, "");
-}
-
-function escapeXML(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
 }
 
 function getMentionIDs(event) {
@@ -104,13 +107,18 @@ async function resolveUsername(username, api) {
     }
 
     if (first && typeof first === "object") {
-      return normalizeID(first.userID || first.userId || first.id) || null;
+      return normalizeID(
+        first.userID || first.userId || first.id
+      ) || null;
     }
   }
 
   if (result && typeof result === "object") {
     return normalizeID(
-      result.userID || result.userId || result.id || result.ID
+      result.userID ||
+      result.userId ||
+      result.id ||
+      result.ID
     ) || null;
   }
 
@@ -119,7 +127,10 @@ async function resolveUsername(username, api) {
 
 async function getTarget(event, api) {
   const mentions = getMentionIDs(event);
-  if (mentions.length) return mentions[0];
+
+  if (mentions.length) {
+    return mentions[0];
+  }
 
   const usernames = extractUsernames(event.body);
 
@@ -127,7 +138,9 @@ async function getTarget(event, api) {
     const id = await resolveUsername(usernames[0], api);
 
     if (!id) {
-      throw new Error(`@${usernames[0]} username থেকে user ID পাওয়া যায়নি।`);
+      throw new Error(
+        `@${usernames[0]} username থেকে user ID পাওয়া যায়নি।`
+      );
     }
 
     return id;
@@ -136,13 +149,131 @@ async function getTarget(event, api) {
   return getReplyID(event) || null;
 }
 
+function getUserInfo(api, userID) {
+  return new Promise(resolve => {
+    if (!api || typeof api.getUserInfo !== "function") {
+      return resolve(null);
+    }
+
+    let settled = false;
+
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    try {
+      const returned = api.getUserInfo(
+        String(userID),
+        (error, data) => finish(error ? null : data)
+      );
+
+      if (returned && typeof returned.then === "function") {
+        returned.then(finish, () => finish(null));
+      } else if (returned && typeof returned === "object") {
+        finish(returned);
+      }
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+async function getProfileData(userID, event, api) {
+  let profile = null;
+
+  try {
+    const result = await resolveProfile(
+      [String(userID)],
+      {
+        ...event,
+        senderID: String(userID),
+        messageReply: null,
+        mentions: {}
+      },
+      api
+    );
+
+    profile = Array.isArray(result) ? result[0] : result;
+  } catch (error) {
+    console.warn(
+      "[Tanvir143 | igBot] resolveProfile warning:",
+      error.message || error
+    );
+  }
+
+  const infoResult = await getUserInfo(api, userID);
+  const info = infoResult && (
+    infoResult[String(userID)] ||
+    infoResult[userID] ||
+    infoResult
+  );
+
+  return {
+    ...(info && typeof info === "object" ? info : {}),
+    ...(profile && typeof profile === "object" ? profile : {})
+  };
+}
+
+function getUsername(profile = {}, userID) {
+  let username =
+    profile.vanity ||
+    profile.username ||
+    profile.userName ||
+    profile.instagramUsername ||
+    profile.instagram_username ||
+    profile.handle ||
+    profile.user_name ||
+    "";
+
+  username = String(username || "").trim();
+
+  if (username.includes("/")) {
+    username = username.split("/").filter(Boolean).pop() || "";
+  }
+
+  username = username
+    .replace(/^@+/, "")
+    .replace(/\s+/g, "")
+    .trim();
+
+  if (
+    !username ||
+    username === "undefined" ||
+    username === "null"
+  ) {
+    // Avoid a blank label if the API does not expose a username.
+    return String(userID);
+  }
+
+  return username;
+}
+
+function getAvatarURL(profile = {}) {
+  return (
+    profile.profilePicture ||
+    profile.profilePic ||
+    profile.profilePicUrl ||
+    profile.thumbSrc ||
+    profile.avatar ||
+    profile.photoURL ||
+    profile.photoUrl ||
+    profile.image ||
+    profile.picture ||
+    null
+  );
+}
+
 async function downloadImage(url) {
   const response = await axios.get(url, {
     responseType: "arraybuffer",
     timeout: 20000,
     maxContentLength: MAX_IMAGE_SIZE,
     maxBodyLength: MAX_IMAGE_SIZE,
-    headers: { "User-Agent": "Mozilla/5.0" }
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
   });
 
   const buffer = Buffer.from(response.data);
@@ -154,153 +285,134 @@ async function downloadImage(url) {
   return buffer;
 }
 
-async function getProfileData(userID, event, api) {
-  const profile = await resolveProfile(
-    [String(userID)],
-    {
-      ...event,
-      senderID: String(userID),
-      messageReply: null,
-      mentions: {}
-    },
-    api
-  );
-
-  const data = Array.isArray(profile) ? profile[0] : profile;
-
-  if (!data) {
-    throw new Error("ব্যবহারকারীর profile পাওয়া যায়নি।");
-  }
-
-  return data;
-}
-
-async function getUsername(userID, profile, api) {
-  const fields = [
-    profile.username,
-    profile.userName,
-    profile.instagramUsername,
-    profile.handle,
-    profile.vanity
-  ];
-
-  for (const value of fields) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim().replace(/^@/, "");
-    }
-  }
-
-  if (typeof api.getUserInfo === "function") {
-    const info = await new Promise(resolve => {
-      let settled = false;
-
-      const finish = value => {
-        if (settled) return;
-        settled = true;
-        resolve(value);
-      };
-
-      try {
-        const returned = api.getUserInfo(String(userID), (error, data) => {
-          finish(error ? null : data);
-        });
-
-        if (returned && typeof returned.then === "function") {
-          returned.then(finish, () => finish(null));
-        } else if (returned && typeof returned === "object") {
-          finish(returned);
-        }
-      } catch {
-        finish(null);
-      }
-    });
-
-    const user =
-      info && (info[String(userID)] || info[userID] || info);
-
-    const name = user && (
-      user.username ||
-      user.userName ||
-      user.instagramUsername ||
-      user.vanity
-    );
-
-    if (typeof name === "string" && name.trim()) {
-      return name.trim().replace(/^@/, "");
-    }
-  }
-
-  // Fallback: never render an empty username.
-  return String(userID);
-}
-
 async function getAvatarBuffer(profile) {
-  const url =
-    profile.profilePicture ||
-    profile.avatar ||
-    profile.photoURL ||
-    profile.profilePic ||
-    profile.thumbSrc ||
-    profile.profilePicUrl;
+  const imageURL = getAvatarURL(profile);
 
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-    throw new Error("Profile picture URL পাওয়া যায়নি।");
+  if (
+    typeof imageURL !== "string" ||
+    !/^https?:\/\//i.test(imageURL)
+  ) {
+    throw new Error(
+      "Profile picture URL পাওয়া যায়নি।"
+    );
   }
 
-  return downloadImage(url);
+  return downloadImage(imageURL);
+}
+
+function textWidth(value, font, size) {
+  const layout = font.layout(String(value || ""));
+
+  return layout.glyphs.reduce(
+    (sum, glyph) => sum + glyph.advanceWidth,
+    0
+  ) * size / font.unitsPerEm;
 }
 
 /**
- * SVG text rendering: no Jimp.loadFont(), fontkit or external font file.
+ * Render actual font glyph paths.
+ * This follows gcimg.js and avoids SVG system-font rendering.
  */
-function createUsernameSVG(username, width, height, centerX, baselineY) {
-  const safeName = escapeXML(
-    String(username || "Instagram User")
-      .replace(/^@/, "")
-      .slice(0, 40)
-  );
+function makeText(
+  value,
+  x,
+  baseline,
+  size,
+  color,
+  bold = true,
+  anchor = "middle"
+) {
+  const font = bold ? BOLD_FONT : REGULAR_FONT;
+  const content = String(value || "");
+  const layout = font.layout(content);
+  const scale = size / font.unitsPerEm;
 
-  const textWidth = Math.round(width * 0.82);
-  const needsFit = safeName.length > 17;
+  const width = textWidth(content, font, size);
+  let cursorX = x;
 
-  const fitAttributes = needsFit
-    ? `textLength="${textWidth}" lengthAdjust="spacingAndGlyphs"`
-    : "";
+  if (anchor === "middle") cursorX -= width / 2;
+  if (anchor === "end") cursorX -= width;
 
-  return Buffer.from(`
-    <svg xmlns="http://www.w3.org/2000/svg"
-      width="${width}" height="${height}"
-      viewBox="0 0 ${width} ${height}">
-      <text
-        x="${centerX}"
-        y="${baselineY}"
-        fill="#FFFFFF"
-        font-family="sans-serif"
-        font-size="${USERNAME_FONT_SIZE}px"
-        font-weight="600"
-        text-anchor="middle"
-        ${fitAttributes}>${safeName}</text>
-    </svg>
-  `);
+  const paths = [];
+
+  for (const glyph of layout.glyphs) {
+    const pathData = glyph.path.toSVG();
+
+    if (pathData) {
+      paths.push(
+        `<path d="${pathData}" transform="translate(${cursorX.toFixed(2)},${baseline}) scale(${scale},-${scale})"/>`
+      );
+    }
+
+    cursorX += glyph.advanceWidth * scale;
+  }
+
+  return `<g fill="${color}">${paths.join("")}</g>`;
 }
 
-async function createHackImage(templateBuffer, avatarBuffer, username) {
+function makeFittedText(
+  value,
+  x,
+  baseline,
+  maxWidth,
+  maxSize,
+  color,
+  bold = true,
+  anchor = "middle"
+) {
+  const font = bold ? BOLD_FONT : REGULAR_FONT;
+  let content = String(value || "");
+  let size = maxSize;
+
+  while (
+    content &&
+    textWidth(content, font, size) > maxWidth &&
+    size > 10
+  ) {
+    size -= 1;
+  }
+
+  if (textWidth(content, font, size) > maxWidth) {
+    while (
+      content.length > 3 &&
+      textWidth(content + "...", font, size) > maxWidth
+    ) {
+      content = content.slice(0, -1);
+    }
+
+    content += "...";
+  }
+
+  return makeText(
+    content,
+    x,
+    baseline,
+    size,
+    color,
+    bold,
+    anchor
+  );
+}
+
+async function createHackImage(
+  templateBuffer,
+  avatarBuffer,
+  username
+) {
   const metadata = await sharp(templateBuffer).metadata();
   const width = metadata.width;
   const height = metadata.height;
 
   if (!width || !height) {
-    throw new Error("Template image-এর dimensions পাওয়া যায়নি।");
+    throw new Error(
+      "Template image-এর dimensions পাওয়া যায়নি।"
+    );
   }
 
-  // Previous DP size + 7 pixels.
-  const avatarSize = Math.round(width * 0.22) + AVATAR_EXTRA_SIZE;
+  // Keep the current DP position; size remains 7px larger.
+  const avatarSize =
+    Math.round(width * 0.22) + AVATAR_EXTRA_SIZE;
 
-  /*
-   * White-circle center position.
-   * This is adjusted lower than the previous version.
-   * If the source template dimensions differ, the ratio may need tuning.
-   */
   const centerX = Math.round(width * 0.5);
   const centerY = Math.round(height * 0.445);
 
@@ -311,7 +423,7 @@ async function createHackImage(templateBuffer, avatarBuffer, username) {
         cx="${avatarSize / 2}"
         cy="${avatarSize / 2}"
         r="${avatarSize / 2}"
-        fill="#FFFFFF"/>
+        fill="#ffffff"/>
     </svg>
   `);
 
@@ -321,27 +433,42 @@ async function createHackImage(templateBuffer, avatarBuffer, username) {
       fit: "cover",
       position: "centre"
     })
-    .composite([{ input: circleMask, blend: "dest-in" }])
+    .composite([
+      {
+        input: circleMask,
+        blend: "dest-in"
+      }
+    ])
     .png()
     .toBuffer();
 
   const avatarX = Math.round(centerX - avatarSize / 2);
   const avatarY = Math.round(centerY - avatarSize / 2);
 
-  // Username below the circle, not over the white area.
+  // Username: 54px, white, 7px lower than the previous position.
   const usernameBaseline =
     centerY +
     Math.round(avatarSize / 2) +
     USERNAME_FONT_SIZE +
-    12;
+    12 +
+    USERNAME_EXTRA_DOWN;
 
-  const usernameSVG = createUsernameSVG(
-    username,
-    width,
-    height,
-    centerX,
-    usernameBaseline
-  );
+  const usernameSVG = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg"
+      width="${width}" height="${height}"
+      viewBox="0 0 ${width} ${height}">
+      ${makeFittedText(
+        username,
+        centerX,
+        usernameBaseline,
+        Math.round(width * 0.84),
+        USERNAME_FONT_SIZE,
+        "#FFFFFF",
+        true,
+        "middle"
+      )}
+    </svg>
+  `);
 
   return sharp(templateBuffer)
     .composite([
@@ -393,12 +520,13 @@ function setReaction(api, event, emoji) {
 module.exports.config = {
   name: "hack",
   aliases: ["fakehack"],
-  version: "1.0.5",
+  version: "1.1.0",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
   shortDescription: "Create a funny fake Instagram login image",
-  longDescription: "Creates a joke image using a user's profile picture.",
+  longDescription:
+    "Creates a joke image using a user's profile picture.",
   category: "fun",
   guide: {
     en:
@@ -428,10 +556,15 @@ module.exports.onStart = async function ({ api, event }) {
       );
     }
 
-    const profile = await getProfileData(targetID, event, api);
+    const profile = await getProfileData(
+      targetID,
+      event,
+      api
+    );
 
-    const [username, avatarBuffer, templateBuffer] = await Promise.all([
-      getUsername(targetID, profile, api),
+    const username = getUsername(profile, targetID);
+
+    const [avatarBuffer, templateBuffer] = await Promise.all([
       getAvatarBuffer(profile),
       downloadImage(TEMPLATE_URL)
     ]);
@@ -466,7 +599,10 @@ module.exports.onStart = async function ({ api, event }) {
         }
 
         setTimeout(() => {
-          api.sendMessage("🎭 Hacked Succesfull", threadID);
+          api.sendMessage(
+            "🎭 Hacked Succesfull",
+            threadID
+          );
         }, 1000);
       }
     );
