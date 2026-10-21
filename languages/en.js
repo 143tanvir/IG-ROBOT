@@ -1,4 +1,4 @@
-/**
+a/**
  * File Name: en.js
  * ICA: igbot-api
  * Auhor: Tanvir Ahmed (Tanvir143)
@@ -17,9 +17,9 @@
 module.exports = {
 	// dispatcher
 	commandNotFound: "🐤",
-	commandNotFoundSuggestion: "এই নামের কমান্ড নেই, \nতুমি কি {pn}%1 -এটা ব্যবহারের চেষ্টা করতেছো? \n অথবা টাইপ করো  {pn}help",
-	onlyAdmin: "শুধুমাত্র গ্রুপের এডমিন এই কমান্ড ব্যবহার করতো পারবেন। ( %1 )",
-	onlyAdminBot: "শুধুমাত্র রোবট এর এডমিন এটি ব্যবহার করতে পারবেন। ( %1 )",
+	commandNotFoundSuggestion: "এই নামের কমান্ড নেই, \n ব্যবহার করুন:  {pn}%1 ",
+	onlyAdmin: "শুধুমাত্র গ্রুপের এডমিনের জন্য এটি ( %1 )",
+	onlyAdminBot: "শুধুমাত্র রোবট এর এডমিনের জন্য এটি ( %1 )",
 	cooldown: "%1 সেকেন্ড পরে %2 ব্যবহার করুন।",
 	userBanned: "তোমাকে বট থেকে ব্যান করা হয়েছে,\n সম্ভাব্য কারন: %2 করেছো",
 	notWhitelisted: "তোমার অনুমোদন নেই এটি ব্যবহারের ( %1 )",
