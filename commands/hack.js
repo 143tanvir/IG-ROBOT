@@ -17,7 +17,7 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 const USERNAME_FONT_SIZE = 62;
 const USERNAME_EXTRA_DOWN = 20;
-const AVATAR_EXTRA_SIZE = 40;
+const AVATAR_EXTRA_SIZE = 44;
 
 // Same font-rendering method used in gcimg.js.
 const REGULAR_FONT = fontkit.openSync(
