@@ -17,7 +17,7 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 const USERNAME_FONT_SIZE = 62;
 const USERNAME_EXTRA_DOWN = 20;
-const AVATAR_EXTRA_SIZE = 28;
+const AVATAR_EXTRA_SIZE = 30;
 
 // Same font-rendering method used in gcimg.js.
 const REGULAR_FONT = fontkit.openSync(
@@ -414,7 +414,7 @@ async function createHackImage(
     Math.round(width * 0.22) + AVATAR_EXTRA_SIZE;
 
   const centerX = Math.round(width * 0.5);
-  const centerY = Math.round(height * 0.450);
+  const centerY = Math.round(height * 0.447);
 
   const circleMask = Buffer.from(`
     <svg xmlns="http://www.w3.org/2000/svg"
@@ -519,15 +519,15 @@ function setReaction(api, event, emoji) {
 
 module.exports.config = {
   name: "hack",
-  aliases: ["fakehack"],
+  aliases: ["ighack"],
   version: "1.1.0",
   author: "Tanvir Ahmed (Tanvir143)",
-  countDown: 5,
+  cooldown: 5,
   role: 0,
   shortDescription: "Create a funny fake Instagram login image",
   longDescription:
     "Creates a joke image using a user's profile picture.",
-  category: "fun",
+  category: "users cmd",
   guide: {
     en:
       "{pn} @mention\n" +
@@ -600,7 +600,7 @@ module.exports.onStart = async function ({ api, event }) {
 
         setTimeout(() => {
           api.sendMessage(
-            "🎭 Hacked Succesfull",
+            "🎭 Hacked Successfull",
             threadID
           );
         }, 1000);
