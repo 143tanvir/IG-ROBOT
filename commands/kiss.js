@@ -386,7 +386,7 @@ async function createKissImage(
   const height = template.bitmap.height;
 
   const avatarSize = Math.round(
-    Math.min(width, height) * 0.22
+    Math.min(width, height) * 0.34
   );
 
   // Girl: upper yellow marker.
