@@ -1,4 +1,3 @@
-
 /**
  * File Name: hack.js
  * ICA: igbot-api
