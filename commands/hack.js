@@ -8,7 +8,7 @@
 "use strict";
 
 const axios = require("axios");
-const { Jimp } = require("jimp");
+const sharp = require("sharp");
 const { resolveProfile } = require("../src/utils");
 
 const TEMPLATE_URL = "https://i.imgur.com/a5kHNs2.png";
@@ -106,9 +106,7 @@ async function resolveUsername(username, api) {
 async function getTarget(event, api) {
   const mentions = getMentionIDs(event);
 
-  if (mentions.length) {
-    return mentions[0];
-  }
+  if (mentions.length) return mentions[0];
 
   const usernames = extractUsernames(event.body);
 
@@ -124,13 +122,7 @@ async function getTarget(event, api) {
     return id;
   }
 
-  const replyID = getReplyID(event);
-
-  if (replyID) {
-    return replyID;
-  }
-
-  return null;
+  return getReplyID(event) || null;
 }
 
 async function downloadImage(url) {
@@ -175,20 +167,17 @@ async function getUsername(userID, profile, api) {
     profile.instagramUsername ||
     profile.handle;
 
-  if (
-    typeof knownUsername === "string" &&
-    knownUsername.trim()
-  ) {
+  if (typeof knownUsername === "string" && knownUsername.trim()) {
     return knownUsername.trim().replace(/^@/, "");
   }
 
   if (typeof api.getUserInfo === "function") {
     const info = await new Promise(resolve => {
-      let done = false;
+      let settled = false;
 
       const finish = value => {
-        if (done) return;
-        done = true;
+        if (settled) return;
+        settled = true;
         resolve(value);
       };
 
@@ -211,8 +200,7 @@ async function getUsername(userID, profile, api) {
       info && (info[userID] || info[String(userID)] || info);
 
     const username =
-      user &&
-      (user.username || user.userName || user.vanity);
+      user && (user.username || user.userName || user.vanity);
 
     if (typeof username === "string" && username.trim()) {
       return username.trim().replace(/^@/, "");
@@ -236,92 +224,106 @@ async function getAvatarBuffer(profile) {
   return downloadImage(url);
 }
 
-/**
- * Auhor: Tanvir Ahmed (tanvid143) do not replace it.
- * Places a circular avatar inside the white circular area.
- * Coordinates are proportional to the template dimensions.
- */
-async function createHackImage(templateBuffer, avatarBuffer, username) {
-  const template = await Jimp.read(templateBuffer);
-  const avatar = await Jimp.read(avatarBuffer);
+function escapeXML(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
-  const width = template.bitmap.width;
-  const height = template.bitmap.height;
+async function createHackImage(
+  templateBuffer,
+  avatarBuffer,
+  username
+) {
+  const template = sharp(templateBuffer);
+  const metadata = await template.metadata();
 
-  /*
-   * Template reference:
-   * The white circle is approximately centered horizontally.
-   * These proportions are based on the uploaded 1432x3264 screenshot.
-   */
-  const centerX = Math.round(width * 0.5);
-  const centerY = Math.round(height * 0.446);
-  const avatarSize = Math.round(width * 0.278);
+  const width = metadata.width;
+  const height = metadata.height;
 
-  avatar.cover({
-    w: avatarSize,
-    h: avatarSize
-  });
-
-  // Transparent square; copy only the pixels inside the circle.
-  const circularAvatar = new Jimp({
-    width: avatarSize,
-    height: avatarSize,
-    color: 0x00000000
-  });
-
-  const src = avatar.bitmap.data;
-  const dst = circularAvatar.bitmap.data;
-  const center = (avatarSize - 1) / 2;
-  const radius = avatarSize / 2;
-  const radiusSquared = radius * radius;
-
-  for (let y = 0; y < avatarSize; y++) {
-    for (let x = 0; x < avatarSize; x++) {
-      const dx = x - center;
-      const dy = y - center;
-
-      if (dx * dx + dy * dy <= radiusSquared) {
-        const i = (y * avatarSize + x) * 4;
-
-        dst[i] = src[i];
-        dst[i + 1] = src[i + 1];
-        dst[i + 2] = src[i + 2];
-        dst[i + 3] = src[i + 3];
-      }
-    }
+  if (!width || !height) {
+    throw new Error("Template image-এর dimensions পাওয়া যায়নি।");
   }
+
+  // Position and size are proportional to the template.
+  const avatarSize = Math.round(width * 0.25);
+  const centerX = Math.round(width * 0.5);
+  const centerY = Math.round(height * 0.454);
+
+  // Resize DP to a square and convert it to a circle.
+  const circleMask = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg"
+      width="${avatarSize}" height="${avatarSize}">
+      <circle cx="${avatarSize / 2}"
+        cy="${avatarSize / 2}"
+        r="${avatarSize / 2}"
+        fill="white"/>
+    </svg>
+  `);
+
+  const circularAvatar = await sharp(avatarBuffer)
+    .rotate()
+    .resize(avatarSize, avatarSize, {
+      fit: "cover",
+      position: "centre"
+    })
+    .composite([
+      {
+        input: circleMask,
+        blend: "dest-in"
+      }
+    ])
+    .png()
+    .toBuffer();
 
   const avatarX = Math.round(centerX - avatarSize / 2);
   const avatarY = Math.round(centerY - avatarSize / 2);
 
-  template.composite(circularAvatar, avatarX, avatarY);
+  const cleanUsername = escapeXML(
+    String(username || "Instagram User")
+      .replace(/^@/, "")
+      .slice(0, 40)
+  );
 
-  /*
-   * Username is placed below the DP, without @.
-   * Use Jimp's built-in font; shrink text to fit the available width.
-   */
-  const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+  const fontSize = Math.max(
+    12,
+    Math.round(width * 0.035)
+  );
 
-  const label = String(username || "")
-    .replace(/^@/, "")
-    .slice(0, 40);
+  const textY = avatarY + avatarSize + Math.round(height * 0.012);
 
-  const textWidth = Jimp.measureText(font, label);
-  const textHeight = Jimp.measureTextHeight(font, label, width);
+  const usernameSVG = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg"
+      width="${width}" height="${height}">
+      <text
+        x="${centerX}"
+        y="${textY + fontSize}"
+        font-family="Arial, sans-serif"
+        font-size="${fontSize}"
+        font-weight="600"
+        fill="#262626"
+        text-anchor="middle">${cleanUsername}</text>
+    </svg>
+  `);
 
-  const textX = Math.max(0, Math.round((width - textWidth) / 2));
-  const textY = Math.round(avatarY + avatarSize + height * 0.008);
-
-  if (textY + textHeight < height) {
-    template.print({
-      font,
-      x: textX,
-      y: textY,
-      text: label
-    });
-  }
-
-  return template.getBuffer("image/png");
+  return sharp(templateBuffer)
+    .composite([
+      {
+        input: circularAvatar,
+        left: avatarX,
+        top: avatarY
+      },
+      {
+        input: usernameSVG,
+        left: 0,
+        top: 0
+      }
+    ])
+    .png()
+    .toBuffer();
 }
 
 function setReaction(api, event, emoji) {
@@ -357,11 +359,13 @@ function setReaction(api, event, emoji) {
 module.exports.config = {
   name: "hack",
   aliases: ["fakehack"],
-  version: "1.0.0",
+  version: "1.0.1",
   author: "Tanvir Ahmed (Tanvir143)",
-  cooldown: 5,
+  countDown: 5,
   role: 0,
-  category: "users Cmd",
+  shortDescription: "Create a funny fake Instagram login image",
+  longDescription: "Creates a joke image using a user's profile picture.",
+  category: "fun",
   guide: {
     en:
       "{pn} @mention\n" +
@@ -372,7 +376,7 @@ module.exports.config = {
 
 module.exports.onStart = async function ({ api, event }) {
   const threadID = event.threadID;
-  const replyMessageID = event.messageID;
+  const originalMessageID = event.messageID;
 
   setReaction(api, event, "🎭");
 
@@ -386,7 +390,7 @@ module.exports.onStart = async function ({ api, event }) {
           ".hack @username\n" +
           "অথবা কারও মেসেজে reply দিয়ে .hack লেখো।",
         threadID,
-        replyMessageID
+        originalMessageID
       );
     }
 
@@ -405,7 +409,7 @@ module.exports.onStart = async function ({ api, event }) {
       username
     );
 
-    // Send the generated image first.
+    // Send the generated image.
     api.sendMessage(
       {
         body: "",
@@ -418,11 +422,9 @@ module.exports.onStart = async function ({ api, event }) {
             "[Tanvir143 | igBot] Hack image send failed:",
             error.message || error
           );
-
           return;
         }
 
-        // React only after the image has been sent successfully.
         if (info && info.messageID) {
           setReaction(
             api,
@@ -431,7 +433,6 @@ module.exports.onStart = async function ({ api, event }) {
           );
         }
 
-        // Send the success text one second after the image.
         setTimeout(() => {
           api.sendMessage(
             "🎭 Hacked Succesfull",
@@ -451,7 +452,7 @@ module.exports.onStart = async function ({ api, event }) {
         error.message || error
       }`,
       threadID,
-      replyMessageID
+      originalMessageID
     );
   }
 };
