@@ -14,9 +14,19 @@ const { resolveProfile } = require("../src/utils");
 const TEMPLATE_URL = "https://i.imgur.com/a5kHNs2.png";
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const USERNAME_FONT_SIZE = 34;
+const AVATAR_EXTRA_SIZE = 7;
 
 function normalizeID(id) {
   return String(id || "").replace(/[^0-9]/g, "");
+}
+
+function escapeXML(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function getMentionIDs(event) {
@@ -31,14 +41,19 @@ function getMentionIDs(event) {
 
 function getReplyID(event) {
   const reply = event.messageReply || {};
-  return normalizeID(reply.senderID || reply.senderId || "");
+
+  return normalizeID(
+    reply.senderID || reply.senderId || ""
+  );
 }
 
 function extractUsernames(body) {
   const matches =
     String(body || "").match(/@([a-zA-Z0-9._]+)/g) || [];
 
-  return [...new Set(matches.map(name => name.slice(1)))];
+  return [
+    ...new Set(matches.map(name => name.slice(1)))
+  ];
 }
 
 async function resolveUsername(username, api) {
@@ -57,21 +72,29 @@ async function resolveUsername(username, api) {
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
-      error ? reject(error) : resolve(value);
+
+      if (error) reject(error);
+      else resolve(value);
     };
 
     try {
-      const returned = api.getUserID(cleanName, (error, data) => {
-        if (error) return finish(error);
-        finish(null, data);
-      });
+      const returned = api.getUserID(
+        cleanName,
+        (error, data) => {
+          if (error) return finish(error);
+          finish(null, data);
+        }
+      );
 
       if (returned && typeof returned.then === "function") {
         returned.then(
           value => finish(null, value),
           error => finish(error)
         );
-      } else if (returned !== undefined && returned !== null) {
+      } else if (
+        returned !== undefined &&
+        returned !== null
+      ) {
         finish(null, returned);
       }
     } catch (error) {
@@ -79,25 +102,36 @@ async function resolveUsername(username, api) {
     }
   });
 
-  if (typeof result === "string" || typeof result === "number") {
+  if (
+    typeof result === "string" ||
+    typeof result === "number"
+  ) {
     return normalizeID(result) || null;
   }
 
   if (Array.isArray(result) && result.length) {
     const first = result[0];
 
-    if (typeof first === "string" || typeof first === "number") {
+    if (
+      typeof first === "string" ||
+      typeof first === "number"
+    ) {
       return normalizeID(first) || null;
     }
 
     if (first && typeof first === "object") {
-      return normalizeID(first.userID || first.id) || null;
+      return normalizeID(
+        first.userID || first.userId || first.id
+      ) || null;
     }
   }
 
   if (result && typeof result === "object") {
     return normalizeID(
-      result.userID || result.userId || result.id || result.ID
+      result.userID ||
+      result.userId ||
+      result.id ||
+      result.ID
     ) || null;
   }
 
@@ -114,15 +148,18 @@ async function getTarget(event, api) {
   const usernames = extractUsernames(event.body);
 
   if (usernames.length) {
-    const id = await resolveUsername(usernames[0], api);
+    const userID = await resolveUsername(
+      usernames[0],
+      api
+    );
 
-    if (!id) {
+    if (!userID) {
       throw new Error(
         `@${usernames[0]} username থেকে user ID পাওয়া যায়নি।`
       );
     }
 
-    return id;
+    return userID;
   }
 
   return getReplyID(event) || null;
@@ -139,7 +176,13 @@ async function downloadImage(url) {
     }
   });
 
-  return Buffer.from(response.data);
+  const buffer = Buffer.from(response.data);
+
+  if (!buffer.length) {
+    throw new Error("Image download খালি এসেছে।");
+  }
+
+  return buffer;
 }
 
 async function getProfileData(userID, event, api) {
@@ -154,7 +197,9 @@ async function getProfileData(userID, event, api) {
     api
   );
 
-  const data = Array.isArray(profile) ? profile[0] : profile;
+  const data = Array.isArray(profile)
+    ? profile[0]
+    : profile;
 
   if (!data) {
     throw new Error("ব্যবহারকারীর profile পাওয়া যায়নি।");
@@ -164,14 +209,21 @@ async function getProfileData(userID, event, api) {
 }
 
 async function getUsername(userID, profile, api) {
-  const knownUsername =
-    profile.username ||
-    profile.userName ||
-    profile.instagramUsername ||
-    profile.handle;
+  const possibleNames = [
+    profile.username,
+    profile.userName,
+    profile.instagramUsername,
+    profile.handle,
+    profile.vanity
+  ];
 
-  if (typeof knownUsername === "string" && knownUsername.trim()) {
-    return knownUsername.trim().replace(/^@/, "");
+  for (const value of possibleNames) {
+    if (
+      typeof value === "string" &&
+      value.trim()
+    ) {
+      return value.trim().replace(/^@/, "");
+    }
   }
 
   if (typeof api.getUserInfo === "function") {
@@ -185,13 +237,22 @@ async function getUsername(userID, profile, api) {
       };
 
       try {
-        const returned = api.getUserInfo(userID, (error, data) => {
-          finish(error ? null : data);
-        });
+        const returned = api.getUserInfo(
+          String(userID),
+          (error, data) => {
+            finish(error ? null : data);
+          }
+        );
 
         if (returned && typeof returned.then === "function") {
-          returned.then(finish, () => finish(null));
-        } else if (returned && typeof returned === "object") {
+          returned.then(
+            finish,
+            () => finish(null)
+          );
+        } else if (
+          returned &&
+          typeof returned === "object"
+        ) {
           finish(returned);
         }
       } catch {
@@ -200,16 +261,26 @@ async function getUsername(userID, profile, api) {
     });
 
     const user =
-      info && (info[userID] || info[String(userID)] || info);
+      info &&
+      (
+        info[String(userID)] ||
+        info[userID] ||
+        info
+      );
 
-    const username =
-      user && (user.username || user.userName || user.vanity);
+    const name = user && (
+      user.username ||
+      user.userName ||
+      user.vanity ||
+      user.instagramUsername
+    );
 
-    if (typeof username === "string" && username.trim()) {
-      return username.trim().replace(/^@/, "");
+    if (typeof name === "string" && name.trim()) {
+      return name.trim().replace(/^@/, "");
     }
   }
 
+  // Never leave the username area empty.
   return String(userID);
 }
 
@@ -218,42 +289,57 @@ async function getAvatarBuffer(profile) {
     profile.profilePicture ||
     profile.avatar ||
     profile.photoURL ||
-    profile.profilePic;
+    profile.profilePic ||
+    profile.thumbSrc ||
+    profile.profilePicUrl;
 
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-    throw new Error("Profile picture URL পাওয়া যায়নি।");
+  if (
+    typeof url !== "string" ||
+    !/^https?:\/\//i.test(url)
+  ) {
+    throw new Error(
+      "Profile picture URL পাওয়া যায়নি।"
+    );
   }
 
   return downloadImage(url);
 }
 
-function escapeXML(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function createUsernameSVG(username, width, height, centerX, baselineY) {
-  const text = escapeXML(
+/**
+ * Same SVG text approach as gcimg.js.
+ * No Jimp, fontkit or external font file required.
+ */
+function createUsernameSVG(
+  username,
+  width,
+  height,
+  centerX,
+  baselineY
+) {
+  const safeName = escapeXML(
     String(username || "Instagram User")
       .replace(/^@/, "")
       .slice(0, 40)
   );
 
+  const maxTextWidth = Math.round(width * 0.78);
+
   return Buffer.from(`
-    <svg xmlns="http://www.w3.org/2000/svg"
-      width="${width}" height="${height}">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="${width}"
+      height="${height}"
+      viewBox="0 0 ${width} ${height}">
       <text
         x="${centerX}"
         y="${baselineY}"
-        font-family="sans-serif"
+        fill="#FFFFFF"
+        font-family="Arial, Helvetica, sans-serif"
         font-size="${USERNAME_FONT_SIZE}px"
         font-weight="600"
-        fill="#FFFFFF"
-        text-anchor="middle">${text}</text>
+        text-anchor="middle"
+        textLength="${maxTextWidth}"
+        lengthAdjust="spacingAndGlyphs">${safeName}</text>
     </svg>
   `);
 }
@@ -264,21 +350,29 @@ async function createHackImage(
   username
 ) {
   const metadata = await sharp(templateBuffer).metadata();
+
   const width = metadata.width;
   const height = metadata.height;
 
   if (!width || !height) {
-    throw new Error("Template image-এর dimensions পাওয়া যায়নি।");
+    throw new Error(
+      "Template image-এর dimensions পাওয়া যায়নি।"
+    );
   }
 
-  // DP slightly higher than the previous version.
-  const avatarSize = Math.round(width * 0.22);
+  // Previous DP size + 7 pixels.
+  const avatarSize =
+    Math.round(width * 0.22) + AVATAR_EXTRA_SIZE;
+
+  // DP position: slightly higher than previous version.
   const centerX = Math.round(width * 0.5);
-  const centerY = Math.round(height * 0.448);
+  const centerY = Math.round(height * 0.38);
 
   const circleMask = Buffer.from(`
-    <svg xmlns="http://www.w3.org/2000/svg"
-      width="${avatarSize}" height="${avatarSize}">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="${avatarSize}"
+      height="${avatarSize}">
       <circle
         cx="${avatarSize / 2}"
         cy="${avatarSize / 2}"
@@ -302,12 +396,19 @@ async function createHackImage(
     .png()
     .toBuffer();
 
-  const avatarX = Math.round(centerX - avatarSize / 2);
-  const avatarY = Math.round(centerY - avatarSize / 2);
+  const avatarX = Math.round(
+    centerX - avatarSize / 2
+  );
 
-  // Username in white, 34px.
+  const avatarY = Math.round(
+    centerY - avatarSize / 2
+  );
+
+  // Place username below the avatar.
   const usernameBaseline =
-    avatarY + avatarSize + Math.round(height * 0.012) +
+    avatarY +
+    avatarSize +
+    Math.round(height * 0.012) +
     USERNAME_FONT_SIZE;
 
   const usernameSVG = createUsernameSVG(
@@ -368,12 +469,13 @@ function setReaction(api, event, emoji) {
 module.exports.config = {
   name: "hack",
   aliases: ["fakehack"],
-  version: "1.0.3",
+  version: "1.0.4",
   author: "Tanvir Ahmed (Tanvir143)",
   countDown: 5,
   role: 0,
   shortDescription: "Create a funny fake Instagram login image",
-  longDescription: "Creates a joke image using a user's profile picture.",
+  longDescription:
+    "Creates a joke image using a user's profile picture.",
   category: "fun",
   guide: {
     en:
@@ -395,15 +497,19 @@ module.exports.onStart = async function ({ api, event }) {
     if (!targetID) {
       return api.sendMessage(
         "🎭 ব্যবহার:\n" +
-          ".hack @mention\n" +
-          ".hack @username\n" +
-          "অথবা কারও মেসেজে reply দিয়ে .hack লেখো।",
+        ".hack @mention\n" +
+        ".hack @username\n" +
+        "অথবা কারও message-এ reply দিয়ে .hack লেখো।",
         threadID,
         originalMessageID
       );
     }
 
-    const profile = await getProfileData(targetID, event, api);
+    const profile = await getProfileData(
+      targetID,
+      event,
+      api
+    );
 
     const [username, avatarBuffer, templateBuffer] =
       await Promise.all([
@@ -436,7 +542,10 @@ module.exports.onStart = async function ({ api, event }) {
         if (info && info.messageID) {
           setReaction(
             api,
-            { ...event, messageID: info.messageID },
+            {
+              ...event,
+              messageID: info.messageID
+            },
             "✅"
           );
         }
