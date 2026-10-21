@@ -1,4 +1,4 @@
-a/**
+/**
  * File Name: en.js
  * ICA: igbot-api
  * Auhor: Tanvir Ahmed (Tanvir143)
