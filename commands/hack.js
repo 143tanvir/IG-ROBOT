@@ -15,9 +15,9 @@ const { resolveProfile } = require("../src/utils");
 const TEMPLATE_URL = "https://i.imgur.com/a5kHNs2.png";
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
-const USERNAME_FONT_SIZE = 64;
-const USERNAME_EXTRA_DOWN = 12;
-const AVATAR_EXTRA_SIZE = 14;
+const USERNAME_FONT_SIZE = 62;
+const USERNAME_EXTRA_DOWN = 18;
+const AVATAR_EXTRA_SIZE = 23;
 
 // Same font-rendering method used in gcimg.js.
 const REGULAR_FONT = fontkit.openSync(
