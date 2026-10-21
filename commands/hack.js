@@ -17,7 +17,7 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 const USERNAME_FONT_SIZE = 62;
 const USERNAME_EXTRA_DOWN = 20;
-const AVATAR_EXTRA_SIZE = 30;
+const AVATAR_EXTRA_SIZE = 34;
 
 // Same font-rendering method used in gcimg.js.
 const REGULAR_FONT = fontkit.openSync(
@@ -414,7 +414,7 @@ async function createHackImage(
     Math.round(width * 0.22) + AVATAR_EXTRA_SIZE;
 
   const centerX = Math.round(width * 0.5);
-  const centerY = Math.round(height * 0.447);
+  const centerY = Math.round(height * 0.446);
 
   const circleMask = Buffer.from(`
     <svg xmlns="http://www.w3.org/2000/svg"
