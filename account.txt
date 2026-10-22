@@ -3,14 +3,14 @@
 # This is a generated file! Do not edit.
 
 .instagram.com	TRUE	/	TRUE	1818773124	ig_did	DDC4882B-5222-480C-9925-1640A1DA663D
-.instagram.com	TRUE	/	TRUE	1821797125	datr	BROHanP35fjj5yIfIGpnxV5r
+.instagram.com	TRUE	/	TRUE	1821797124	datr	BROHanP35fjj5yIfIGpnxV5r
 .instagram.com	TRUE	/	TRUE	1821797127	ps_l	1
 .instagram.com	TRUE	/	TRUE	1821797127	ps_n	1
 .instagram.com	TRUE	/	TRUE	1821797133	mid	aocTBQABAAFSy6zx7Rl9bCvgvQrJ
-.instagram.com	TRUE	/	TRUE	1793216512	dpr	2.6875
-.instagram.com	TRUE	/	TRUE	1793216514	wd	402x805
-.instagram.com	TRUE	/	TRUE	1827171717	csrftoken	Sm8Kj3aO4wdPGZ2r7ZkrjO5nIiU4R5vT
-.instagram.com	TRUE	/	TRUE	1800387717	ds_user_id	42962831350
-.instagram.com	TRUE	/	TRUE	1824125082	sessionid	42962831350%3A0ev0BGjOORY8WR%3A19%3AAYlYfwfMIwad4Nr6pHqj9UN3_HMMjcWyXFlg-RS2Xg
-.instagram.com	TRUE	/	TRUE	1792698092	rd_challenge	Q_6hBQTrfGMct0Wl4zkJtC05CMu4-eIU8ZD1H-mxWRiUWNP2uay5a6Ds3ruGcNF2R3zOXJ873Dx6nxy-XGb_Z-w5XbYqX1RGHmhsgv0
-.instagram.com	TRUE	/	TRUE	0	rur	CCO%2C17841443180500353%2C1793821563%3A01ff0d6ea884783bb8ebfb4dac8f97ebb2ed16b28ddc45029bdde7c343a33ae7d6028dc6
+.instagram.com	TRUE	/	TRUE	1793262747	dpr	2.6875
+.instagram.com	TRUE	/	TRUE	1827217954	csrftoken	Sm8Kj3aO4wdPGZ2r7ZkrjO5nIiU4R5vT
+.instagram.com	TRUE	/	TRUE	1800433954	ds_user_id	42962831350
+.instagram.com	TRUE	/	TRUE	1792698091	rd_challenge	Q_6hBQTrfGMct0Wl4zkJtC05CMu4-eIU8ZD1H-mxWRiUWNP2uay5a6Ds3ruGcNF2R3zOXJ873Dx6nxy-XGb_Z-w5XbYqX1RGHmhsgv0
+.instagram.com	TRUE	/	TRUE	1793262747	wd	402x805
+.instagram.com	TRUE	/	TRUE	1824188565	sessionid	42962831350%3AxEgSnfUs6vc6tL%3A23%3AAYleNJZ0LeQJMOXMu1YrMsgc2cTMG5MuWVNeoM8K-A
+.instagram.com	TRUE	/	TRUE	0	rur	"TTX\05442962831350\0541824193954:01ff929acd4ee8fafc5eb2ffdbff6c7ecf86e4f9a8f991a923a8ef9aacfb50575428a1e3"
