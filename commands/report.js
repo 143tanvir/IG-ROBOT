@@ -13,15 +13,15 @@ const axios = require("axios");
 module.exports = {
 	config: {
 		name: "report",
-		aliases: ["rep"],
-		version: "0.0.3",
+		aliases: ["rpt"],
+		version: "0.0.4",
 		author: "Tanvir Ahmed",
 		cooldown: 5,
 		role: 0,
 		description: {
 			en: "Report Instagram user profile multiple times for harassment"
 		},
-		category: "Users Cmd",
+		category: "Admin cmds",
 		guide: {
 			en: "{pn} @mention\n{pn} username\nReply to a message with {pn} to report its sender."
 		}
@@ -81,7 +81,7 @@ module.exports = {
 			}
 
 			try {
-				message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche...`);
+				await message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche...`);
 
 				let successCount = 0;
 				const totalReports = 10;
@@ -100,7 +100,7 @@ module.exports = {
 					// ignore
 				}
 
-				// লুপ চালিয়ে ১০টি রিপোর্ট সাবমিট করা
+				// লুপ চালিয়ে সঠিক ২ সেকেন্ড বিরতিতে ১০টি রিপোর্ট সাবমিট করা
 				for (let i = 1; i <= totalReports; i++) {
 					try {
 						const url = 'https://www.instagram.com/api/v1/web/reports/get_frx_prompt/';
@@ -122,10 +122,15 @@ module.exports = {
 						});
 
 						successCount++;
-						await new Promise(resolve => setTimeout(resolve, 2000));
+						console.log(`✅ Report ${i} successful for ${target.label}`);
 					} catch (err) {
 						lastErrorMessage = err.response?.data?.message || err.message || String(err);
 						console.error(`Report ${i} failed for ${target.label}:`, lastErrorMessage);
+					}
+
+					// শেষ রিপোর্টের পরেও যেন অতিরিক্ত ২ সেকেন্ড ওয়োর্ড না করে, তাই চেক করা হয়েছে
+					if (i < totalReports) {
+						await new Promise(resolve => setTimeout(resolve, 2000));
 					}
 				}
 
