@@ -6,12 +6,6 @@
  * WhatsApp: +8801750079773
  * Note: Project metadata only; original source credits and license notices are retained.
  */
-
-/*
- * @lazyneoaz/ig-chat-api
- * Author: Saifullah Al Neoaz
- * GitHub: https://github.com/lazyneoaz
- */
 "use strict";
 
 // Per-method descriptors: name, kind, args (with types), return type and a
@@ -86,7 +80,8 @@ const MODULES = [
         require("./getChallenge"),
         require("./clearChallenge"),
         require("./setListenerOptions"),
-        require("./getListenerOptions")
+        require("./getListenerOptions"),
+        require("./reportUser") // নতুন মেথডটি এখানে যুক্ত করা হলো
 ];
 
 const BY_NAME = {};
