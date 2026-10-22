@@ -3,14 +3,14 @@
 # This is a generated file! Do not edit.
 
 .instagram.com	TRUE	/	TRUE	1818773124	ig_did	DDC4882B-5222-480C-9925-1640A1DA663D
-.instagram.com	TRUE	/	TRUE	1821797125	datr	BROHanP35fjj5yIfIGpnxV5r
+.instagram.com	TRUE	/	TRUE	1821797124	datr	BROHanP35fjj5yIfIGpnxV5r
 .instagram.com	TRUE	/	TRUE	1821797127	ps_l	1
 .instagram.com	TRUE	/	TRUE	1821797127	ps_n	1
 .instagram.com	TRUE	/	TRUE	1821797133	mid	aocTBQABAAFSy6zx7Rl9bCvgvQrJ
-.instagram.com	TRUE	/	TRUE	1793290998	dpr	2.6875
-.instagram.com	TRUE	/	TRUE	1792698092	rd_challenge	Q_6hBQTrfGMct0Wl4zkJtC05CMu4-eIU8ZD1H-mxWRiUWNP2uay5a6Ds3ruGcNF2R3zOXJ873Dx6nxy-XGb_Z-w5XbYqX1RGHmhsgv0
-.instagram.com	TRUE	/	TRUE	1793290998	wd	402x805
-.instagram.com	TRUE	/	TRUE	1827246197	csrftoken	p7Ky6C1qewTweuENbPxjbp47QjqGvCXK
-.instagram.com	TRUE	/	TRUE	1800462197	ds_user_id	42962831350
+.instagram.com	TRUE	/	TRUE	1793291204	dpr	2.6875
+.instagram.com	TRUE	/	TRUE	1792698091	rd_challenge	Q_6hBQTrfGMct0Wl4zkJtC05CMu4-eIU8ZD1H-mxWRiUWNP2uay5a6Ds3ruGcNF2R3zOXJ873Dx6nxy-XGb_Z-w5XbYqX1RGHmhsgv0
+.instagram.com	TRUE	/	TRUE	1827246404	csrftoken	p7Ky6C1qewTweuENbPxjbp47QjqGvCXK
+.instagram.com	TRUE	/	TRUE	1800462404	ds_user_id	42962831350
 .instagram.com	TRUE	/	TRUE	1824222188	sessionid	42962831350%3A9JB8GwbQplXYXc%3A0%3AAYl1j-K71KJwImaIjVUUZmKH8mEYPd4lpw1XP0JTaQ
-.instagram.com	TRUE	/	TRUE	0	rur	CCO%2C17841443180500353%2C1793895799%3A01ff53f756dba8551e683346279855f473144f2c43ce712d404cc83be84b5866bda0690f
+.instagram.com	TRUE	/	TRUE	1793291282	wd	402x460
+.instagram.com	TRUE	/	TRUE	0	rur	CCO%2C17841443180500353%2C1793896084%3A01ff98191d962b8946b45400bb3ae02cea7e67d0d2eedaaa9abaeaf601522dac60b4c612
