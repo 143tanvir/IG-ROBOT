@@ -80,8 +80,7 @@ const MODULES = [
         require("./getChallenge"),
         require("./clearChallenge"),
         require("./setListenerOptions"),
-        require("./getListenerOptions"),
-        require("./reportUser") // নতুন মেথডটি এখানে যুক্ত করা হলো
+        require("./getListenerOptions")// নতুন মেথডটি এখানে যুক্ত করা হলো
 ];
 
 const BY_NAME = {};
