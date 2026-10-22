@@ -17,7 +17,7 @@ module.exports = {
 		version: "0.0.7",
 		author: "Tanvir Ahmed",
 		cooldown: 5,
-		role: 0,
+		role: 2,
 		description: {
 			en: "Report Instagram user profile multiple times for harassment"
 		},
