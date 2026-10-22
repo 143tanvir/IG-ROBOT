@@ -14,10 +14,10 @@ module.exports = {
 	config: {
 		name: "report",
 		aliases: ["rpt"],
-		version: "0.0.6",
+		version: "0.0.7",
 		author: "Tanvir Ahmed",
 		cooldown: 5,
-		role: 2,
+		role: 0,
 		description: {
 			en: "Report Instagram user profile multiple times for harassment"
 		},
@@ -81,7 +81,7 @@ module.exports = {
 			}
 
 			try {
-				await message.reply(`[+] TARGET ACCOUNT: @${target.label} \n♻️ TOTAL REPORT: 10\n REPORT STARTED`);
+				await message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche... (Total 10 ta, 2 sec gap)`);
 
 				let successCount = 0;
 				const totalReports = 10;
@@ -89,6 +89,10 @@ module.exports = {
 
 				// JSON cookie theke convert kora string cookie
 				let cookies = "csrftoken=9VXp4ZX8sH78dcc7S2n3g1EXTHNwCHch; datr=2BuHatC0B5utjJDz83TqOJem; dpr=2.6875; ds_user_id=62599140277; ig_did=23C32A60-B780-404F-B9F8-86061BE49ABF; mid=aocb2AABAAGDjFfsK3WAtDfP_GSv; ps_l=1; ps_n=1; rur=CCO%2C17841462528334892%2C1793894930%3A01ff14ebb434a5e9063f4e9103ab6950056ed28114ab7cf98cdabcbbb9cf8e2fc9ac76e6; sessionid=62599140277%3ANLEZoQUaKH8Emk%3A10%3AAYkqLmEINhVCWfXMgeCwR1r2pzVNErUh-vpk0NxPHA; wd=402x805;";
+
+				// Cookie theke csrftoken alada kore ber kora header-er jonno
+				const csrfMatch = cookies.match(/csrftoken=([^;]+)/);
+				const csrfToken = csrfMatch ? csrfMatch[1] : "9VXp4ZX8sH78dcc7S2n3g1EXTHNwCHch";
 
 				// লুপ চালিয়ে সঠিক ২ সেকেন্ড বিরতিতে ১০টি রিপোর্ট সাবমিট করা
 				for (let i = 1; i <= totalReports; i++) {
@@ -107,6 +111,7 @@ module.exports = {
 								'Content-Type': 'application/x-www-form-urlencoded',
 								'X-Requested-With': 'XMLHttpRequest',
 								'X-IG-App-ID': '936619743392459',
+								'X-CSRFToken': csrfToken,
 								...(cookies ? { 'Cookie': cookies } : {})
 							}
 						});
@@ -119,7 +124,7 @@ module.exports = {
 						successCount++;
 
 					} catch (err) {
-						lastErrorMessage = err.response?.data?.message || err.message || String(err);
+						lastErrorMessage = err.response?.data?.message || err.response?.data?.detail || err.message || String(err);
 					}
 
 					// শেষ রিপোর্টের পরেও যেন অতিরিক্ত ২ সেকেন্ড ওয়েটিং টাইম না নেয়
@@ -128,7 +133,6 @@ module.exports = {
 					}
 				}
 
-				// Shudhu choto message asbe, kono boro HTML response r group-e ashbe na
 				if (successCount > 0 && !lastErrorMessage) {
 					return message.reply(`[✔] Report Done: ${successCount}/${totalReports} successful for @${target.label}`);
 				} else {
