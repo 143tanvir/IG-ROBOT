@@ -14,10 +14,10 @@ module.exports = {
 	config: {
 		name: "report",
 		aliases: ["rpt"],
-		version: "0.0.4",
+		version: "0.0.5",
 		author: "Tanvir Ahmed",
 		cooldown: 5,
-		role: 0,
+		role: 2,
 		description: {
 			en: "Report Instagram user profile multiple times for harassment"
 		},
@@ -81,14 +81,14 @@ module.exports = {
 			}
 
 			try {
-				await message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche...`);
+				await message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche... (Total 10 ta, 2 sec gap)`);
 
 				let successCount = 0;
 				const totalReports = 10;
-				let lastErrorMessage = "";
+				let lastResponseData = "";
 
 				// বটের সেশন কুকি সংগ্রহ করা (যদি থাকে)
-				let cookies = "";
+				let cookies = "sessionid=62599140277%3ANLEZoQUaKH8Emk%3A10%3AAYkqLmEINhVCWfXMgeCwR1r2pzVNErUh-vpk0NxPHA; ds_user_id=62599140277; csrftoken=9VXp4ZX8sH78dcc7S2n3g1EXTHNwCHch;";
 				try {
 					if (typeof api.getAppState === "function") {
 						const appState = await api.getAppState();
@@ -112,7 +112,7 @@ module.exports = {
 						formData.append('object_type', '5');
 						formData.append('frx_prompt_request_type', '1');
 
-						await axios.post(url, formData, {
+						const response = await axios.post(url, formData, {
 							headers: {
 								'Content-Type': 'application/x-www-form-urlencoded',
 								'X-Requested-With': 'XMLHttpRequest',
@@ -121,24 +121,22 @@ module.exports = {
 							}
 						});
 
+						// Response data save kora message-e dekhanor jonno
+						lastResponseData = typeof response.data === 'object' ? JSON.stringify(response.data, null, 2) : String(response.data);
 						successCount++;
-						console.log(`✅ Report ${i} successful for ${target.label}`);
+
 					} catch (err) {
-						lastErrorMessage = err.response?.data?.message || err.message || String(err);
-						console.error(`Report ${i} failed for ${target.label}:`, lastErrorMessage);
+						lastResponseData = err.response?.data ? (typeof err.response.data === 'object' ? JSON.stringify(err.response.data, null, 2) : String(err.response.data)) : (err.message || String(err));
 					}
 
-					// শেষ রিপোর্টের পরেও যেন অতিরিক্ত ২ সেকেন্ড ওয়োর্ড না করে, তাই চেক করা হয়েছে
+					// শেষ রিপোর্টের পরেও যেন অতিরিক্ত ২ সেকেন্ড ওয়েটিং টাইম না নেয়
 					if (i < totalReports) {
 						await new Promise(resolve => setTimeout(resolve, 2000));
 					}
 				}
 
-				if (successCount > 0) {
-					return message.reply(`[✔] Report ${successCount} successful`);
-				} else {
-					return message.reply(`❌ Report failed! Error: ${lastErrorMessage || "Unknown error occurred"}`);
-				}
+				// ১০টি কমপ্লিট হওয়ার পর সরাসরি গ্রুপ মেসেজে রেজल्ट ও response পাঠানো
+				return message.reply(`[✔] Report Done: ${successCount}/${totalReports} successful.\n\nInstagram Response:\n${lastResponseData}`);
 
 			} catch (error) {
 				const reason = error.error || error.message || String(error);
