@@ -8,14 +8,16 @@
 
 "use strict";
 
+const axios = require("axios");
+
 module.exports = {
 	config: {
 		name: "report",
 		aliases: ["rep"],
-		version: "0.0.2",
+		version: "0.0.3",
 		author: "Tanvir Ahmed",
 		cooldown: 5,
-		role: 2,
+		role: 0,
 		description: {
 			en: "Report Instagram user profile multiple times for harassment"
 		},
@@ -79,32 +81,57 @@ module.exports = {
 			}
 
 			try {
-				if (typeof api.reportUser !== "function") {
-					throw new Error("api.reportUser() is not supported by this ICA");
-				}
-
 				message.reply(`[+] Target @${target.label} er biruddhe reporting shuru hocche...`);
 
 				let successCount = 0;
 				const totalReports = 10;
 				let lastErrorMessage = "";
 
+				// বটের সেশন কুকি সংগ্রহ করা (যদি থাকে)
+				let cookies = "";
+				try {
+					if (typeof api.getAppState === "function") {
+						const appState = await api.getAppState();
+						if (Array.isArray(appState)) {
+							cookies = appState.map(c => `${c.name}=${c.value}`).join("; ");
+						}
+					}
+				} catch (e) {
+					// ignore
+				}
+
+				// লুপ চালিয়ে ১০টি রিপোর্ট সাবমিট করা
 				for (let i = 1; i <= totalReports; i++) {
 					try {
-						await api.reportUser(target.id);
+						const url = 'https://www.instagram.com/api/v1/web/reports/get_frx_prompt/';
+						const formData = new URLSearchParams();
+						formData.append('container_module', 'profilePage');
+						formData.append('entry_point', '1');
+						formData.append('location', '2');
+						formData.append('object_id', target.id);
+						formData.append('object_type', '5');
+						formData.append('frx_prompt_request_type', '1');
+
+						await axios.post(url, formData, {
+							headers: {
+								'Content-Type': 'application/x-www-form-urlencoded',
+								'X-Requested-With': 'XMLHttpRequest',
+								'X-IG-App-ID': '936619743392459',
+								...(cookies ? { 'Cookie': cookies } : {})
+							}
+						});
+
 						successCount++;
 						await new Promise(resolve => setTimeout(resolve, 2000));
 					} catch (err) {
-						lastErrorMessage = err.error || err.message || String(err);
+						lastErrorMessage = err.response?.data?.message || err.message || String(err);
 						console.error(`Report ${i} failed for ${target.label}:`, lastErrorMessage);
 					}
 				}
 
-				// Jodi shob gulo ba kichu report successful hoy
 				if (successCount > 0) {
 					return message.reply(`[✔] Report ${successCount} successful`);
 				} else {
-					// Jodi ektao successful na hoy, tahole shesh error message-ti message a bole debe
 					return message.reply(`❌ Report failed! Error: ${lastErrorMessage || "Unknown error occurred"}`);
 				}
 
