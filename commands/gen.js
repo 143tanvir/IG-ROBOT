@@ -2,570 +2,570 @@
 /**
  * File Name: genx.js
  * ICA: igbot-api
- * Author: Tanvir Ahmed (Tanvir143)
- * GitHub: www.github.com/143tanvir
- * WhatsApp: +8801750079773
+ * Original Author: Neoaz 🐊 (credits retained)
+ * Integration: Tanvir143 | IG-ROBOT
  */
 
 "use strict";
 
 const axios = require("axios");
-const fs = require("fs-extra");
-const path = require("path");
-const os = require("os");
+const { getStreamFromURL } = global.utils;
 
-const AUTHOR = "Tanvir143";
-const API_CONFIG_URL =
-  "https://raw.githubusercontent.com/goatbotnx/xalmanx210/refs/heads/main/apis.json";
-const HUB_KEY = "xalman-hub";
-const NKX_BASE_URL = "https://nkx-gen.neokex.xyz";
-const NKX_API_KEY = "nkxgen";
-const TEMP_DIR = path.join(os.tmpdir(), "igbot-genx");
+const API = "https://myimg-api.vercel.app";
 
-const RATIOS = [
-  "1:1", "16:9", "9:16", "4:3", "3:4",
-  "3:2", "2:3", "21:9", "4:5", "5:4"
-];
-
-const nkxClient = axios.create({
-  baseURL: NKX_BASE_URL,
-  timeout: 300000,
-  validateStatus: () => true,
-  headers: { "X-API-Key": NKX_API_KEY }
-});
-
-/*
- * Models using the Hub API do NOT get an NKX prefix.
- * Models using NKX /api/generate get the NKX prefix.
- */
-
-const GEN_MODELS = [
-  { name: "⚡ Flux 2 Max", path: "/api/flux2max", hub: true },
-  { name: "🖼️ GPT Image 2", path: "/api/gptimage2", hub: true },
-  { name: "✨ GPT 2.5 Flare", path: "/api/gpt2.5-flare", hub: true },
-  { name: "🌟 GPT 2.5 Flare V2", path: "/api/gpt2.5-flare-v2", hub: true },
-  { name: "☀️ GPT 2.5 Sunburst", path: "/api/gpt2.5-sunburst", hub: true },
-  { name: "🎨 GPT Image 2.5 Sunburst V2", path: "/api/gptimage2.5-sunburst-v2", hub: true },
-  { name: "🤖 Grok", path: "/api/grok", hub: true },
-  { name: "🍌 Nano Banana", path: "/api/nb", hub: true },
-  { name: "🍌 Nano Banana 2", path: "/api/nanobanana2", hub: true },
-  { name: "🧠 Qwen Image 2", path: "/api/qwenimage2", hub: true },
-  { name: "🎬 SeedDream 4", path: "/api/seedream4", hub: true },
-
-  { name: "🧠 NKX Qwen Image", model: "qwen-image" },
-  { name: "🍌 NKX Nano Banana 2", model: "nano-banana-2" },
-  { name: "🖼️ NKX GPT Image 2 Low", model: "gpt-image-2-low" },
-  { name: "⚡ NKX Flux 2 Dev", model: "flux-2-dev" },
-  { name: "⚡ NKX Flux 2 Flex", model: "flux-2-flex" },
-  { name: "⚡ NKX Flux 2 Pro", model: "flux-2-pro" },
-  { name: "🎨 NKX Flux Krea", model: "flux-krea" },
-  { name: "🪄 NKX Ideogram V3 Turbo", model: "ideogram-v3-turbo" },
-  { name: "🎬 NKX SeedDream 4", model: "seedream-4" },
-  { name: "🎬 NKX SeedDream 4.5", model: "seedream-4-5" },
-  { name: "🎬 NKX SeedDream 5", model: "seedream-5" },
-  { name: "🧠 NKX Qwen Image 2", model: "qwen-image-2" },
-  { name: "🧠 NKX Qwen Image 2 Pro", model: "qwen-image-2-pro" },
-  { name: "✨ NKX Gemini 2.5 Flash Image", model: "gemini-2-5-flash-image" },
-  { name: "🌟 NKX GPT 2.5 Flare Low", model: "gpt-image-2-5-flare-low" },
-  { name: "☀️ NKX GPT 2.5 Sunburst Low", model: "gpt-image-2-5-sunburst-low" }
-];
-
-const EDIT_MODELS = [
-  { name: "🖼️ Classic Edit", hub: true },
-
-  { name: "🍌 NKX Nano Banana 2 Edit", model: "nano-banana-2-edit" },
-  { name: "🖼️ NKX GPT Image 2 Edit", model: "gpt-image-2-edit" },
-  { name: "⚡ NKX Flux 2 Dev Edit", model: "flux-2-dev-edit" },
-  { name: "⚡ NKX Flux 2 Pro Edit", model: "flux-2-pro-edit" },
-  { name: "🎨 NKX Flux Krea Edit", model: "flux-krea-edit" },
-  { name: "🪄 NKX Flux Kontext Dev", model: "flux-kontext-dev" },
-  { name: "🎬 NKX SeedDream 4 Edit", model: "seedream-4-edit" },
-  { name: "🎬 NKX SeedDream 4.5 Edit", model: "seedream-4-5-edit" },
-  { name: "🎬 NKX SeedDream 5 Edit", model: "seedream-5-edit" },
-  { name: "✨ NKX Gemini 2.5 Flash Edit", model: "gemini-2-5-flash-image-edit" },
-  { name: "🌟 NKX GPT 2.5 Flare Edit", model: "gpt-image-2-5-flare-low-edit" },
-  { name: "☀️ NKX GPT 2.5 Sunburst Edit", model: "gpt-image-2-5-sunburst-low-edit" }
-];
-
-function formatNKXError(res) {
-  const d = res && res.data;
-
-  if (d && typeof d === "object") {
-    if (d.detail && typeof d.detail === "object" && !Array.isArray(d.detail)) {
-      return d.detail.error || d.error ||
-        "Insufficient balance to run this generation.";
-    }
-
-    if (typeof d.detail === "string") return d.detail;
-
-    if (Array.isArray(d.detail)) {
-      return d.detail.map(x => x.msg || x).join("; ");
-    }
-
-    if (d.error) return d.error;
-    if (d.hint) return d.hint;
-    if (d.message) return d.message;
+const MODELS = {
+  imagine: {
+    gen: "/generate/text-to-image",
+    ar: "size",
+    style: "style",
+    params: ["prompt", "style", "width", "height"],
+    required: { gen: ["prompt"] }
+  },
+  flux: {
+    gen: "/generate/flux-text-to-image",
+    ar: "flux",
+    params: ["prompt", "size"],
+    required: { gen: ["prompt"] }
+  },
+  styledit: {
+    edit: "/generate/image-to-image",
+    ar: "size",
+    style: "style",
+    params: ["style", "width", "height", "styleId"]
+  },
+  image: {
+    edit: "/generate/image-to-image-v2",
+    params: ["prompt", "maxSize"],
+    required: { edit: ["prompt"] }
+  },
+  edit: {
+    edit: "/generate/edit",
+    style: "preset",
+    params: ["preset", "prompt", "tune"]
+  },
+  enhance: { edit: "/generate/enhance" },
+  pretty: { edit: "/generate/pretty", params: ["level"] },
+  restore: { edit: "/generate/restore" },
+  animation: { edit: "/generate/animation" },
+  eyeopen: { edit: "/generate/eye-open" },
+  age: {
+    edit: "/generate/change-age",
+    params: ["targetAge"],
+    required: { edit: ["targetAge"] }
+  },
+  hair: {
+    edit: "/generate/change-hair",
+    params: ["hairType"],
+    required: { edit: ["hairType"] }
+  },
+  emotion: {
+    edit: "/generate/change-emotion",
+    params: ["emotionType"],
+    required: { edit: ["emotionType"] }
+  },
+  clothes: {
+    edit: "/generate/change-clothes",
+    params: ["modelUrl", "clothesUrl", "preset", "modelPreset"]
+  },
+  segment: { edit: "/generate/segment" },
+  cartoon: { edit: "/generate/cartoonized", params: ["index"] },
+  repaint: {
+    edit: "/generate/repaint",
+    style: "style",
+    params: ["style"]
+  },
+  cosplay: {
+    edit: "/generate/cosplay",
+    params: ["templateUrl", "index"],
+    required: { edit: ["templateUrl"] }
+  },
+  upscale: {
+    edit: "/generate/scale",
+    params: ["scale", "outputFormat"]
+  },
+  faceswap: {
+    edit: "/generate/face-swap",
+    imageParam: "source",
+    params: ["source", "target"],
+    required: { edit: ["target"] }
+  },
+  nsfw: {
+    gen: "/generate/nsfw-text-to-image",
+    edit: "/generate/nsfw-image-to-image",
+    ar: "size",
+    style: "stylePreset",
+    params: ["prompt", "style", "stylePreset", "width", "height"],
+    required: { gen: ["prompt"] }
+  },
+  video: {
+    edit: "/generate/video",
+    params: ["duration", "prompt", "model", "bgmUrl"]
+  },
+  videoenhance: {
+    edit: "/generate/video-enhance",
+    imageParam: "videoUrl",
+    params: ["videoUrl", "free"]
+  },
+  subtitle: {
+    edit: "/generate/remove-subtitle",
+    imageParam: "videoUrl",
+    params: ["videoUrl", "bx", "by", "bw", "bh"],
+    required: { edit: ["bx", "by", "bw", "bh"] }
   }
+};
 
-  if (res.status === 401) return "The NKX API rejected its key.";
-  if (res.status === 402) return "Not enough API credits.";
-  if (res.status === 504) return "The job timed out.";
+const ALIASES = {
+  targetage: "targetAge",
+  hairtype: "hairType",
+  emotiontype: "emotionType",
+  modelurl: "modelUrl",
+  clothesurl: "clothesUrl",
+  modelpreset: "modelPreset",
+  templateurl: "templateUrl",
+  videourl: "videoUrl",
+  maxsize: "maxSize",
+  stylepreset: "stylePreset",
+  outputformat: "outputFormat",
+  generateaudio: "generateAudio",
+  firstframe: "firstFrameUrl",
+  firstframeurl: "firstFrameUrl",
+  lastframe: "lastFrameUrl",
+  lastframeurl: "lastFrameUrl",
+  bgmurl: "bgmUrl",
+  styleid: "styleId"
+};
 
-  if (res.status === 502 || res.status === 503) {
-    return "The generation server is temporarily unavailable.";
-  }
+const CONTROL = new Set(["models", "styles", "m", "help", "h"]);
+const COMMON = ["i", "img", "imgurl", "image", "wait", "upload"];
 
-  return `request failed (HTTP ${res.status}).`;
-}
+const GUIDE =
+  "🐊 NEOKEX GENX\n\n" +
+  "🖼️ Generate:\n" +
+  "• gen +imagine a cute cat\n" +
+  "• gen +flux a futuristic robot\n\n" +
+  "✏️ Edit (reply to an image):\n" +
+  "• gen +image +maxSize 1024 add a girl beside me\n" +
+  "• gen +age +targetAge 50\n" +
+  "• gen +hair +hairType curly\n" +
+  "• gen +emotion +emotionType happy\n" +
+  "• gen +enhance\n\n" +
+  "📋 Other:\n" +
+  "• gen +models\n" +
+  "• gen +styles\n" +
+  "• gen +s\n\n" +
+  "Use + instead of -- for parameters.";
 
-async function runNKXJob(payload) {
-  let response = await nkxClient.post("/api/generate", payload);
-
-  if (
-    (response.status === 400 || response.status === 422) &&
-    !payload.ratio &&
-    /ratio/i.test(JSON.stringify(response.data || ""))
-  ) {
-    response = await nkxClient.post("/api/generate", {
-      ...payload,
-      ratio: "1:1"
-    });
-  }
-
-  if (response.status >= 400) {
-    throw new Error(formatNKXError(response));
-  }
-
-  const data = response.data || {};
-  const url = data.url || data.thumbnail;
-
-  if (typeof url !== "string" || !url) {
-    throw new Error("NKX finished the job but returned no image URL.");
-  }
-
-  return url;
-}
-
-async function downloadToTemp(url, prefix = "genx") {
-  const response = await axios.get(url, {
-    responseType: "arraybuffer",
-    timeout: 120000
-  });
-
-  const contentType = String(
-    response.headers["content-type"] || ""
-  ).toLowerCase();
-
-  if (!contentType.startsWith("image/")) {
-    throw new Error("The download URL did not return an image.");
-  }
-
-  const ext = contentType.includes("png")
-    ? ".png"
-    : contentType.includes("webp")
-      ? ".webp"
-      : contentType.includes("jpeg")
-        ? ".jpg"
-        : ".jpg";
-
-  await fs.ensureDir(TEMP_DIR);
-
-  const file = path.join(
-    TEMP_DIR,
-    `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}${ext}`
-  );
-
-  await fs.writeFile(file, Buffer.from(response.data));
-  return file;
-}
-
-function parseArgs(args) {
-  const out = { ratio: null, images: [], words: [] };
+function parse(args) {
+  const flags = {};
+  const rest = [];
+  let modelChosen = false;
 
   for (let i = 0; i < args.length; i++) {
-    const value = String(args[i]);
-    const low = value.toLowerCase();
+    const token = args[i];
 
-    if (low === "--ar") {
-      out.ratio = args[++i] || null;
-    } else if (["--img", "--image", "--url"].includes(low)) {
-      if (args[i + 1]) out.images.push(String(args[++i]));
-    } else {
-      out.words.push(value);
+    if (token.startsWith("+") && token.length > 1) {
+      const key = token.slice(1).toLowerCase();
+
+      // First +word selects the model or a control action.
+      if (!modelChosen) {
+        modelChosen = true;
+
+        if (key === "models" || key === "styles") {
+          flags[key] = true;
+          continue;
+        }
+
+        if (key === "help" || key === "h") {
+          flags.help = true;
+          continue;
+        }
+
+        if (key === "s") {
+          flags.s = true;
+          continue;
+        }
+
+        flags.m = key;
+        continue;
+      }
+
+      // Subsequent +word tokens are parameters.
+      const next = args[i + 1];
+
+      if (next !== undefined &&
+          !next.startsWith("+") &&
+          !next.startsWith("--")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+
+      continue;
     }
+
+    // Backward compatibility with --flags.
+    if (token.startsWith("--")) {
+      const key = token.slice(2).toLowerCase();
+      const next = args[i + 1];
+
+      if (next !== undefined &&
+          !next.startsWith("--") &&
+          !next.startsWith("+")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+
+      continue;
+    }
+
+    rest.push(token);
   }
 
-  out.prompt = out.words.join(" ").trim();
-  return out;
+  return { flags, rest };
 }
 
-function photosOf(attachments) {
-  if (!Array.isArray(attachments)) return [];
+function findImage(flags, event) {
+  let image = flags.i || flags.img || flags.imgurl || flags.image;
 
-  return attachments
-    .filter(a => a && (
-      a.type === "photo" ||
-      a.type === "sticker" ||
-      a.type === "image"
-    ))
-    .map(a => a.url || a.largePreviewUrl || a.previewUrl)
-    .filter(Boolean);
+  if (typeof image !== "string") image = undefined;
+
+  const replied = event && event.messageReply;
+
+  if (!image && replied && Array.isArray(replied.attachments)) {
+    const att = replied.attachments.find(a =>
+      a.url && (
+        ["photo", "image", "animated_image", "gif", "video"].includes(a.type) ||
+        /\.(png|jpe?g|webp|gif|mp4|mov)$/i.test(a.url)
+      )
+    );
+
+    if (att) image = att.url;
+  }
+
+  return image;
 }
 
-function getThreadID(event) {
-  return event.threadID || event.threadId;
+function ratioToSize(ar, base = 1024) {
+  const m = /^(\d+)\s*[:x/]\s*(\d+)$/i.exec(String(ar).trim());
+  if (!m) return null;
+
+  const rw = Number(m[1]);
+  const rh = Number(m[2]);
+
+  if (!rw || !rh) return null;
+
+  if (rw >= rh) {
+    return {
+      width: base,
+      height: Math.round(base * rh / rw)
+    };
+  }
+
+  return {
+    width: Math.round(base * rw / rh),
+    height: base
+  };
 }
 
-function getReply(event) {
-  return event.messageReply ||
-    event.replyMessage ||
-    event.repliedMessage ||
-    null;
+function applyAr(model, ar, params) {
+  const size = ratioToSize(ar);
+  if (!size) return false;
+
+  if (model.ar === "flux") {
+    params.size = `${size.width}x${size.height}`;
+  } else {
+    params.width = size.width;
+    params.height = size.height;
+  }
+
+  return true;
 }
 
-function getImages(event) {
-  const current = Array.isArray(event.attachments)
-    ? event.attachments
-    : [];
-
-  const replyAttachments = Array.isArray(getReply(event)?.attachments)
-    ? getReply(event).attachments
-    : [];
-
-  return [...new Set([
-    ...photosOf(current),
-    ...photosOf(replyAttachments)
-  ])];
-}
-
-async function getHubBaseURL() {
-  const response = await axios.get(API_CONFIG_URL, {
-    timeout: 20000
+async function callApi(path, params) {
+  const res = await axios.get(API + path, {
+    params,
+    timeout: 600000,
+    validateStatus: () => true
   });
 
-  const data = response.data || {};
-
-  const base =
-    data[HUB_KEY] ||
-    data.api ||
-    data.baseURL ||
-    data.baseUrl ||
-    data.url;
-
-  if (typeof base !== "string" || !base.trim()) {
-    throw new Error("Could not find the Hub API URL in apis.json.");
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`API HTTP ${res.status}`);
   }
 
-  return base.replace(/\/+$/, "");
+  return res.data;
 }
 
-function getImageURL(data) {
-  if (!data || typeof data !== "object") return null;
+function react(api, message, messageID, emoji) {
+  try {
+    if (api && typeof api.setMessageReaction === "function") {
+      api.setMessageReaction(emoji, messageID, () => {}, true);
+      return;
+    }
+  } catch (_) {}
 
-  return (
-    data.url ||
-    data.image ||
-    data.imageUrl ||
-    data.output ||
-    data.result?.url ||
-    data.result?.image ||
-    data.data?.url ||
-    data.data?.image ||
-    null
+  try {
+    if (typeof message.reaction === "function") {
+      message.reaction(emoji, messageID);
+    }
+  } catch (_) {}
+}
+
+function resultUrl(data) {
+  const r = data && data.result || {};
+
+  return r.resultUrl ||
+    r.url ||
+    (data && (data.resultUrl || data.url));
+}
+
+async function sendMedia(message, data) {
+  const url = resultUrl(data);
+  if (!url) return false;
+
+  const stream = await getStreamFromURL(url);
+  if (!stream) return false;
+
+  const match = url.split("?")[0].match(/\.(png|jpe?g|webp|gif|mp4|mov)$/i);
+  const ext = match ? match[1] : "png";
+
+  if (typeof stream === "object") {
+    stream.path = `genx.${ext}`;
+  }
+
+  await message.reply({ attachment: stream });
+  return true;
+}
+
+async function listModels(message) {
+  const lines = Object.entries(MODELS).map(([name, model]) => {
+    const types = [
+      model.gen ? "gen" : "",
+      model.edit ? "edit" : ""
+    ].filter(Boolean).join("/");
+
+    return `• ${name} — ${types}`;
+  });
+
+  return message.reply(
+    `🧠 NEOKEX GENX Models (${lines.length})\n\n${lines.join("\n")}`
   );
 }
 
-async function saveHubResponse(response, prefix) {
-  const contentType = String(
-    response.headers["content-type"] || ""
-  ).toLowerCase();
+async function listStyles(message) {
+  const data = await callApi("/nsfw-styles", {});
 
-  if (contentType.startsWith("image/")) {
-    await fs.ensureDir(TEMP_DIR);
-
-    const ext = contentType.includes("jpeg")
-      ? ".jpg"
-      : contentType.includes("webp")
-        ? ".webp"
-        : ".png";
-
-    const file = path.join(
-      TEMP_DIR,
-      `${prefix}_${Date.now()}${ext}`
-    );
-
-    await fs.writeFile(file, Buffer.from(response.data));
-    return file;
+  if (!data || !Array.isArray(data.styles)) {
+    return message.reply("❌ Styles পাওয়া যায়নি। API পরীক্ষা করো।");
   }
 
-  let data = response.data;
+  const lines = data.styles.map(s =>
+    `• ${typeof s === "string" ? s : s.name || s.id}`
+  );
 
-  if (Buffer.isBuffer(data)) {
-    data = data.toString("utf8");
-  }
-
-  if (typeof data === "string") {
-    try {
-      data = JSON.parse(data);
-    } catch (_) {
-      throw new Error("Hub API returned an unsupported response.");
-    }
-  }
-
-  const url = getImageURL(data);
-
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-    throw new Error(
-      data?.detail ||
-      data?.error ||
-      data?.message ||
-      "Hub API returned no image URL."
-    );
-  }
-
-  return downloadToTemp(url, prefix);
+  return message.reply(`🔞 Styles (${lines.length})\n\n${lines.join("\n")}`);
 }
 
-async function generateHub(baseURL, model, prompt, ratio) {
-  const response = await axios.get(`${baseURL}${model.path}`, {
-    params: {
-      prompt,
-      ...(ratio ? { ratio } : {})
-    },
-    responseType: "arraybuffer",
-    timeout: 240000,
-    validateStatus: () => true
-  });
+async function listPresets(message) {
+  const data = await callApi("/edit-presets", {});
 
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Hub generation failed (HTTP ${response.status}).`);
+  if (!data || !Array.isArray(data.presets)) {
+    return message.reply("❌ Edit presets পাওয়া যায়নি।");
   }
 
-  return saveHubResponse(response, "genx");
-}
+  const lines = data.presets.map(p => `• ${p.styleId} — ${p.label}`);
 
-async function editHub(baseURL, imageURL, prompt) {
-  const response = await axios.get(`${baseURL}/api/edit`, {
-    params: {
-      img: imageURL,
-      prompt
-    },
-    responseType: "arraybuffer",
-    timeout: 240000,
-    validateStatus: () => true
-  });
-
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Hub edit failed (HTTP ${response.status}).`);
-  }
-
-  return saveHubResponse(response, "genx-edit");
-}
-
-async function generateNKX(model, prompt, ratio) {
-  const payload = {
-    prompt,
-    model: model.model,
-    resolution: "2k",
-    wait: true
-  };
-
-  if (ratio) payload.ratio = ratio;
-
-  const url = await runNKXJob(payload);
-  return downloadToTemp(url, "genx");
-}
-
-async function editNKX(model, prompt, imageURL, ratio) {
-  const payload = {
-    prompt,
-    model: model.model,
-    image_urls: [imageURL],
-    resolution: "2k",
-    wait: true
-  };
-
-  if (ratio) payload.ratio = ratio;
-
-  const url = await runNKXJob(payload);
-  return downloadToTemp(url, "genx-edit");
-}
-
-function helpText() {
-  let text = `🖼️ ${AUTHOR} GEN\n\n🎨 GENERATE MODELS\n`;
-
-  GEN_MODELS.forEach((model, index) => {
-    text += `${index + 1}. ${model.name}\n`;
-  });
-
-  text += "\n🪄 EDIT MODELS\n";
-
-  EDIT_MODELS.forEach((model, index) => {
-    text += `${index + 1}. ${model.name}\n`;
-  });
-
-  text += "\n📝 USAGE\n";
-  text += ".genx +1 a cute cat\n";
-  text += ".genx +12 a beautiful village --ar 16:9\n";
-  text += ".genx +edit1 make this photo cinematic\n";
-  text += ".genx +edit2 add sunglasses\n";
-  text += "\n📐 RATIOS: " + RATIOS.join(", ");
-  text += "\n📷 For Edit, reply to one photo with the command.";
-
-  return text;
+  return message.reply(`🧩 Edit Presets (${lines.length})\n\n${lines.join("\n")}`);
 }
 
 module.exports = {
   config: {
     name: "gen",
-    aliases: ["genx", "imagegen"],
-    version: "3.3.0",
-    author: "Tanvir Ahmed (Tanvir143)",
-    cooldwn: 6,
+    version: "2.3.0",
+    author: "Neoaz 🐊",
+    cooldown: 5,
     role: 0,
-    description: "Generate and edit images with AI models.",
-    category: "image",
-    guide: ".genx help | .genx +1 prompt | .genx +edit1 prompt"
+    shortDescription: {
+      en: "NEOKEX GENX image and video generator"
+    },
+    longDescription: {
+      en: "Generate and edit images and video through the NEOKEX GENX API."
+    },
+    category: "users cmd",
+    guide: {
+      en: "{pn} +imagine a cute cat\n" +
+          "{pn} +flux a futuristic robot\n" +
+          "Reply to an image: {pn} +image add a girl beside me\n" +
+          "Reply to an image: {pn} +age +targetAge 50\n" +
+          "{pn} +models | {pn} +styles | {pn} +s"
+    }
   },
 
-  onStart: async function ({ api, event, args }) {
-    const threadID = getThreadID(event);
-    if (!threadID) return;
+  onStart: async function ({ api, message, args, event }) {
+    const messageID = event && event.messageID;
+    const { flags, rest } = parse(args);
 
-    const input = args.join(" ").trim();
-
-    if (!input || input.toLowerCase() === "help") {
-      return api.sendMessage(helpText(), threadID);
+    if (!args.length || flags.help || flags.h) {
+      return message.reply(GUIDE);
     }
 
-    const editMatch = input.match(/^\+edit(\d+)(?:\s+|$)/i);
-    const genMatch = input.match(/^\+(\d+)(?:\s+|$)/);
+    if (flags.models) return listModels(message);
+    if (flags.styles) {
+      try {
+        return await listStyles(message);
+      } catch (e) {
+        return message.reply(`❌ Styles error: ${e.message}`);
+      }
+    }
 
-    if (!editMatch && !genMatch) {
-      return api.sendMessage(
-        "❌ Invalid command. Use .genx help",
-        threadID
+    if (flags.s === true && !flags.m) {
+      try {
+        return await listPresets(message);
+      } catch (e) {
+        return message.reply(`❌ Presets error: ${e.message}`);
+      }
+    }
+
+    const modelName = typeof flags.m === "string"
+      ? flags.m.toLowerCase()
+      : "";
+
+    if (modelName && !MODELS[modelName]) {
+      return message.reply(
+        `❌ Unknown model: ${modelName}\nUse: gen +models`
       );
     }
 
-    const isEdit = Boolean(editMatch);
-    const number = Number(isEdit ? editMatch[1] : genMatch[1]);
-    const list = isEdit ? EDIT_MODELS : GEN_MODELS;
-    const model = list[number - 1];
+    const style = typeof flags.s === "string" ? flags.s : undefined;
+    const prompt = rest.join(" ").trim();
 
-    if (!model) {
-      return api.sendMessage(
-        `❌ Invalid model number. Choose 1-${list.length}.`,
-        threadID
+    let image = findImage(flags, event);
+    let model = MODELS[modelName];
+
+    if (!model && style && image) model = MODELS.edit;
+    if (!model) model = image ? MODELS.image : MODELS.imagine;
+
+    const ip = model.imageParam || "imgurl";
+
+    if (!image && typeof flags[ip.toLowerCase()] === "string") {
+      image = flags[ip.toLowerCase()];
+    }
+
+    const label = modelName || (image ? "image" : "imagine");
+    let styleValue = style;
+    let promptValue = prompt;
+
+    if (model === MODELS.edit && styleValue) {
+      styleValue = [styleValue, promptValue].filter(Boolean).join(" ").trim();
+      promptValue = "";
+    }
+
+    if (image && !model.edit) {
+      return message.reply(`❌ ${label} image editing সমর্থন করে না।`);
+    }
+
+    if (!image && !model.gen) {
+      return message.reply(
+        `❌ ${label} মডেলের জন্য ছবিতে Reply দাও অথবা +i <imgurl> দাও।`
       );
     }
 
-    const rest = input.replace(
-      isEdit ? /^\+edit\d+\s*/i : /^\+\d+\s*/,
-      ""
+    if (style && !model.style) {
+      return message.reply(`❌ ${label} +s সমর্থন করে না।`);
+    }
+
+    if (typeof flags.ar === "string" && !model.ar) {
+      return message.reply(`❌ ${label} +ar সমর্থন করে না।`);
+    }
+
+    const allowed = new Set([
+      ...(model.params || []),
+      ...COMMON,
+      ip
+    ].map(k => k.toLowerCase()));
+
+    if (model.ar) allowed.add("ar");
+    if (model.style) allowed.add("s");
+
+    for (const key of Object.keys(flags)) {
+      if (CONTROL.has(key) || allowed.has(key)) continue;
+
+      return message.reply(
+        `❌ Unknown parameter: +${key}\n` +
+        `Allowed: ${[...allowed].map(k => "+" + k).join(" ")}`
+      );
+    }
+
+    const mode = image ? "edit" : "gen";
+    const path = mode === "edit" ? model.edit : model.gen;
+
+    if (!path) {
+      return message.reply(`❌ ${label} এই কাজ সমর্থন করে না।`);
+    }
+
+    const params = {};
+
+    if (image) params[ip] = image;
+    if (promptValue) params.prompt = promptValue;
+    if (styleValue && model.style) params[model.style] = styleValue;
+
+    if (typeof flags.ar === "string") {
+      if (!applyAr(model, flags.ar, params)) {
+        return message.reply("❌ Aspect ratio ভুল। উদাহরণ: +ar 16:9");
+      }
+    }
+
+    for (const key of Object.keys(flags)) {
+      if (
+        CONTROL.has(key) ||
+        key === "s" ||
+        key === "ar" ||
+        key === "m" ||
+        key === ip.toLowerCase()
+      ) {
+        continue;
+      }
+
+      const value = flags[key];
+      if (value === true) continue;
+
+      params[ALIASES[key] || key] = value;
+    }
+
+    const required = (model.required && model.required[mode]) || [];
+    const missing = required.filter(p =>
+      params[p] === undefined || params[p] === ""
     );
 
-    const parsed = parseArgs(rest.split(/\s+/));
-    const prompt = parsed.prompt;
-
-    if (!prompt) {
-      return api.sendMessage(
-        "❌ Please enter a prompt.",
-        threadID
+    if (missing.length) {
+      return message.reply(
+        `❌ প্রয়োজনীয় তথ্য নেই: ${missing.map(p => "+" + p).join(", ")}`
       );
     }
 
-    if (parsed.ratio && !RATIOS.includes(parsed.ratio)) {
-      return api.sendMessage(
-        `❌ Invalid ratio.\nAvailable: ${RATIOS.join(", ")}`,
-        threadID
-      );
-    }
-
-    let filePath = null;
+    react(api, message, messageID, "⌛");
 
     try {
-      if (isEdit) {
-        const images = [
-          ...getImages(event),
-          ...parsed.images
-        ].filter(url => (
-          typeof url === "string" &&
-          /^https?:\/\//i.test(url)
-        ));
+      const data = await callApi(path, params);
+      const sent = data && data.ok !== false
+        ? await sendMedia(message, data)
+        : false;
 
-        const imageURL = images[0];
-
-        if (!imageURL) {
-          return api.sendMessage(
-            "❌ Reply to a photo or provide one using --img IMAGE_URL.",
-            threadID
-          );
-        }
-
-        await api.sendMessage(
-          `⏳ ${AUTHOR}: Editing with ${model.name}...`,
-          threadID
+      if (!sent) {
+        react(api, message, messageID, "❌");
+        return message.reply(
+          "❌ ছবি/ভিডিও পাওয়া যায়নি। API response ও parameter পরীক্ষা করো।"
         );
-
-        if (model.hub) {
-          filePath = await editHub(
-            await getHubBaseURL(),
-            imageURL,
-            prompt
-          );
-        } else {
-          filePath = await editNKX(
-            model,
-            prompt,
-            imageURL,
-            parsed.ratio
-          );
-        }
-      } else {
-        await api.sendMessage(
-          `⏳ ${AUTHOR}: Generating with ${model.name}...`,
-          threadID
-        );
-
-        if (model.hub) {
-          filePath = await generateHub(
-            await getHubBaseURL(),
-            model,
-            prompt,
-            parsed.ratio
-          );
-        } else {
-          filePath = await generateNKX(
-            model,
-            prompt,
-            parsed.ratio
-          );
-        }
       }
 
-      await api.sendMessage({
-        body: `✅ ${AUTHOR} | ${model.name}`,
-        attachment: fs.createReadStream(filePath)
-      }, threadID);
-    } catch (error) {
-      console.error(
-        `[${AUTHOR} GENX ERROR]`,
-        error.stack || error.message
-      );
+      react(api, message, messageID, "✅");
+    } catch (err) {
+      console.error("[Tanvir143 | genx]", err.message);
+      react(api, message, messageID, "❌");
 
-      try {
-        await api.sendMessage(
-          `❌ ${isEdit ? "Image editing" : "Image generation"} failed.\n${error.message || "Unknown API error."}`,
-          threadID
-        );
-      } catch (_) {}
-    } finally {
-      if (filePath) {
-        setTimeout(() => {
-          fs.remove(filePath).catch(() => {});
-        }, 30000);
-      }
+      return message.reply(`❌ Generation ব্যর্থ: ${err.message}`);
     }
   }
 };
