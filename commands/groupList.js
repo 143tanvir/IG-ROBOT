@@ -1,33 +1,30 @@
 /**
- * File Name: groupList.js
+ * File Name: join.js
  * ICA: igbot-api
- * Auhor: Tanvir Ahmed (Tanvir143)
+ * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
- * WhatsApp: +8801750079773
- * Note: Project metadata only; original source credits and license notices are retained.
  */
 
 "use strict";
 
 module.exports = {
 	config: {
-		name: "gclist",
-		aliases: ["grouplist", "groups"],
+		name: "join",
+		aliases: ["joingc", "addme"],
 		author: "Tanvir143",
 		category: "Users Cmd",
 		cooldown: 5,
-		role: 0,
+		role: 2,
 		description: {
-			en: "List all group chats"
+			en: "Join a group using its number"
 		},
 		usage: {
-			en: "{p}gclist"
+			en: "{p}join"
 		}
 	},
 
 	onStart: async function ({
 		message,
-		event,
 		api,
 		config,
 		setReplyHandler
@@ -69,7 +66,10 @@ module.exports = {
 
 				groups.push({
 					id,
-					name: name || "Unnamed Group"
+					name: name || "Unnamed Group",
+					participantIDs: Array.isArray(thread.participantIDs)
+						? thread.participantIDs.map(String)
+						: []
 				});
 			}
 
@@ -81,62 +81,73 @@ module.exports = {
 				a.name.localeCompare(b.name)
 			);
 
-			const list = groups.map((group, index) => {
-				const number = String(index + 1).padStart(2, "0");
-				return `${number}. ${group.name}`;
-			});
+			const list = groups.map((group, index) =>
+				`${String(index + 1).padStart(2, "0")}. ${group.name}`
+			);
 
 			const text =
 `──────────────
-   GROUP LIST
+    JOIN GROUP
 ──────────────
 
 ${list.join("\n")}
 
 Total Groups: ${String(groups.length).padStart(2, "0")}
 
-Reply with a number to join.
+Reply with a group number to continue.
 (Admin only)
 ──────────────`;
 
 			const sent = await message.reply(text);
 
-			if (!sent?.messageID) return;
+			if (!sent || !sent.messageID) return;
 
 			setReplyHandler(
 				async ({ event: replyEvent, message: replyMessage }) => {
-					const admins = Array.isArray(config.adminBot)
-						? config.adminBot.map(String)
-						: [];
-
-					if (!admins.includes(String(replyEvent.senderID))) {
-						return replyMessage.reply(
-							"Only bot admins can use the group number."
-						);
-					}
-
-					const input = String(
-						replyEvent.body || ""
-					).trim();
-
-					if (!/^\d+$/.test(input)) {
-						return replyMessage.reply(
-							"Reply with a valid group number."
-						);
-					}
-
-					const index = Number(input) - 1;
-
-					if (index < 0 || index >= groups.length) {
-						return replyMessage.reply(
-							`Invalid group number. Choose 01-${String(groups.length).padStart(2, "0")}.`
-						);
-					}
-
-					const selected = groups[index];
-					const userID = String(replyEvent.senderID);
-
 					try {
+						const admins = Array.isArray(config.adminBot)
+							? config.adminBot.map(String)
+							: [];
+
+						if (!admins.includes(String(replyEvent.senderID))) {
+							return replyMessage.reply(
+								"Only bot admins can use this command."
+							);
+						}
+
+						const input = String(
+							replyEvent.body || ""
+						).trim();
+
+						if (!/^\d+$/.test(input)) {
+							return replyMessage.reply(
+								"Please reply with a valid group number."
+							);
+						}
+
+						const index = Number(input) - 1;
+
+						if (index < 0 || index >= groups.length) {
+							return replyMessage.reply(
+								`Invalid group number. Choose 01-${String(groups.length).padStart(2, "0")}.`
+							);
+						}
+
+						const selected = groups[index];
+						const userID = String(replyEvent.senderID);
+
+						if (selected.participantIDs.includes(userID)) {
+							return replyMessage.reply(
+								`You are already a member of "${selected.name}".`
+							);
+						}
+
+						if (typeof api.addUserToThread !== "function") {
+							return replyMessage.reply(
+								"ERROR: api.addUserToThread() is not available in your ICA API."
+							);
+						}
+
 						await api.addUserToThread(
 							userID,
 							selected.id
@@ -147,7 +158,7 @@ Reply with a number to join.
      SUCCESS
 ──────────────
 
-You have been added to:
+Join request sent for:
 
 ${selected.name}
 
@@ -160,11 +171,9 @@ ${selected.name}
       ERROR
 ──────────────
 
-Unable to add you to:
+Unable to join the selected group.
 
-${selected.name}
-
-${error.message || "Please try again."}
+${error.message || String(error)}
 
 ──────────────`
 						);
@@ -175,7 +184,7 @@ ${error.message || "Please try again."}
 
 		} catch (error) {
 			return message.reply(
-				`Unable to get group list.\n${error.message || error}`
+				`Unable to get group list.\n${error.message || String(error)}`
 			);
 		}
 	}
