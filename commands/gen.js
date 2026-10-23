@@ -1,3 +1,4 @@
+
 /**
  * File Name: gen.js
  * ICA: igbot-api
@@ -11,6 +12,7 @@ const axios = require("axios");
 
 const API = "https://myimg-api.vercel.app";
 const TIMEOUT = 600000;
+const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
 
 const MODELS = {
 	imagine: {
@@ -42,11 +44,22 @@ const MODELS = {
 		style: "preset",
 		params: ["preset", "prompt", "tune"]
 	},
-	enhance: { edit: "/generate/enhance" },
-	pretty: { edit: "/generate/pretty", params: ["level"] },
-	restore: { edit: "/generate/restore" },
-	animation: { edit: "/generate/animation" },
-	eyeopen: { edit: "/generate/eye-open" },
+	enhance: {
+		edit: "/generate/enhance"
+	},
+	pretty: {
+		edit: "/generate/pretty",
+		params: ["level"]
+	},
+	restore: {
+		edit: "/generate/restore"
+	},
+	animation: {
+		edit: "/generate/animation"
+	},
+	eyeopen: {
+		edit: "/generate/eye-open"
+	},
 	age: {
 		edit: "/generate/change-age",
 		params: ["targetAge"],
@@ -64,10 +77,20 @@ const MODELS = {
 	},
 	clothes: {
 		edit: "/generate/change-clothes",
-		params: ["modelUrl", "clothesUrl", "preset", "modelPreset"]
+		params: [
+			"modelUrl",
+			"clothesUrl",
+			"preset",
+			"modelPreset"
+		]
 	},
-	segment: { edit: "/generate/segment" },
-	cartoon: { edit: "/generate/cartoonized", params: ["index"] },
+	segment: {
+		edit: "/generate/segment"
+	},
+	cartoon: {
+		edit: "/generate/cartoonized",
+		params: ["index"]
+	},
 	repaint: {
 		edit: "/generate/repaint",
 		style: "style",
@@ -93,7 +116,13 @@ const MODELS = {
 		edit: "/generate/nsfw-image-to-image",
 		ar: "size",
 		style: "stylePreset",
-		params: ["prompt", "style", "stylePreset", "width", "height"],
+		params: [
+			"prompt",
+			"style",
+			"stylePreset",
+			"width",
+			"height"
+		],
 		requiredGen: ["prompt"]
 	},
 	video: {
@@ -163,7 +192,9 @@ function parseArgs(args) {
 			if (!firstPlus) {
 				firstPlus = true;
 
-				if (["help", "h", "models", "styles"].includes(key)) {
+				if (
+					["help", "h", "models", "styles"].includes(key)
+				) {
 					flags[key] = true;
 					continue;
 				}
@@ -218,14 +249,22 @@ function parseArgs(args) {
 
 function getAttachment(event, flags, model) {
 	const directKeys = [
-		"i", "img", "imgurl", "image",
-		"source", "videoUrl", "videourl"
+		"i",
+		"img",
+		"imgurl",
+		"image",
+		"source",
+		"videoUrl",
+		"videourl"
 	];
 
 	for (const key of directKeys) {
 		const value = flags[key];
 
-		if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+		if (
+			typeof value === "string" &&
+			/^https?:\/\//i.test(value)
+		) {
 			return value;
 		}
 	}
@@ -237,21 +276,32 @@ function getAttachment(event, flags, model) {
 			: [];
 
 	const videoMode = [
-		"video", "videoenhance", "subtitle"
+		"video",
+		"videoenhance",
+		"subtitle"
 	].includes(model);
 
 	const attachment = attachments.find(item => {
-		if (!item || !item.url) return false;
-
-		if (videoMode) {
-			return item.type === "video" ||
-				/\.(mp4|mov|webm)(\?|$)/i.test(item.url);
+		if (!item || !item.url) {
+			return false;
 		}
 
-		return [
-			"photo", "image", "animated_image", "gif"
-		].includes(item.type) ||
-			/\.(png|jpe?g|webp|gif)(\?|$)/i.test(item.url);
+		if (videoMode) {
+			return (
+				item.type === "video" ||
+				/\.(mp4|mov|webm)(\?|$)/i.test(item.url)
+			);
+		}
+
+		return (
+			[
+				"photo",
+				"image",
+				"animated_image",
+				"gif"
+			].includes(item.type) ||
+			/\.(png|jpe?g|webp|gif)(\?|$)/i.test(item.url)
+		);
 	});
 
 	return attachment ? attachment.url : "";
@@ -262,51 +312,91 @@ function ratioToSize(ratio, base = 1024) {
 		String(ratio || "").trim()
 	);
 
-	if (!match) return null;
+	if (!match) {
+		return null;
+	}
 
 	const w = Number(match[1]);
 	const h = Number(match[2]);
 
-	if (!w || !h || w > 100 || h > 100) return null;
+	if (!w || !h || w > 100 || h > 100) {
+		return null;
+	}
 
 	if (w >= h) {
 		return {
 			width: base,
-			height: Math.max(1, Math.round(base * h / w))
+			height: Math.max(1, Math.round((base * h) / w))
 		};
 	}
 
 	return {
-		width: Math.max(1, Math.round(base * w / h)),
+		width: Math.max(1, Math.round((base * w) / h)),
 		height: base
 	};
 }
 
-function getStreamFromURL(url) {
-	const utils = global.utils;
+/**
+ * Download generated media directly with Axios.
+ * No dependency on global.utils.getStreamFromURL.
+ */
+async function getStreamFromURL(url) {
+	const response = await axios.get(url, {
+		responseType: "arraybuffer",
+		timeout: 120000,
+		maxContentLength: MAX_MEDIA_SIZE,
+		maxBodyLength: MAX_MEDIA_SIZE,
+		validateStatus: () => true
+	});
 
-	if (!utils || typeof utils.getStreamFromURL !== "function") {
+	if (response.status < 200 || response.status >= 300) {
 		throw new Error(
-			"global.utils.getStreamFromURL is unavailable in this bot."
+			`Media download failed (HTTP ${response.status}).`
 		);
 	}
 
-	return utils.getStreamFromURL(url);
+	const buffer = Buffer.from(response.data);
+
+	if (!buffer.length) {
+		throw new Error("Downloaded media is empty.");
+	}
+
+	if (buffer.length > MAX_MEDIA_SIZE) {
+		throw new Error("Generated media exceeds the 100 MB limit.");
+	}
+
+	const contentType = String(
+		response.headers["content-type"] || ""
+	).toLowerCase();
+
+	if (
+		contentType.includes("text/html") ||
+		contentType.includes("application/json")
+	) {
+		throw new Error(
+			"Media URL returned a webpage or JSON instead of a file."
+		);
+	}
+
+	return buffer;
 }
 
 async function requestApi(path, params) {
 	const response = await axios.get(API + path, {
 		params,
 		timeout: TIMEOUT,
+		maxContentLength: MAX_MEDIA_SIZE,
 		validateStatus: () => true
 	});
 
 	if (response.status < 200 || response.status >= 300) {
-		const detail = response.data &&
+		const detail =
+			response.data &&
 			(response.data.message || response.data.error);
 
 		throw new Error(
-			`API HTTP ${response.status}${detail ? `: ${detail}` : ""}`
+			`API HTTP ${response.status}` +
+			(detail ? `: ${detail}` : "")
 		);
 	}
 
@@ -314,46 +404,44 @@ async function requestApi(path, params) {
 }
 
 function getResultUrl(data) {
-	if (!data || typeof data !== "object") return "";
+	if (!data || typeof data !== "object") {
+		return "";
+	}
 
 	const result =
 		data.result && typeof data.result === "object"
 			? data.result
-			: data;
+			: data.data && typeof data.data === "object"
+				? data.data
+				: data;
 
-	return result.resultUrl ||
+	const url =
+		result.resultUrl ||
 		result.imageUrl ||
 		result.videoUrl ||
+		result.image_url ||
 		result.url ||
 		"";
+
+	return typeof url === "string" ? url : "";
 }
 
 async function sendResult(message, data) {
 	const url = getResultUrl(data);
 
 	if (!url || !/^https?:\/\//i.test(url)) {
+		console.error("[GEN] Unexpected API response:", data);
+
 		throw new Error(
 			"API response did not contain a valid media URL."
 		);
 	}
 
-	const stream = await getStreamFromURL(url);
+	const buffer = await getStreamFromURL(url);
 
-	if (!stream) {
-		throw new Error("Unable to download the generated media.");
-	}
-
-	const pathname = url.split("?")[0];
-	const match = pathname.match(
-		/\.(png|jpe?g|webp|gif|mp4|mov|webm)$/i
-	);
-	const ext = match ? match[1].toLowerCase() : "png";
-
-	if (typeof stream === "object" && !stream.path) {
-		stream.path = `gen.${ext}`;
-	}
-
-	await message.reply({ attachment: stream });
+	return message.reply({
+		attachment: buffer
+	});
 }
 
 async function listModels(message) {
@@ -361,7 +449,9 @@ async function listModels(message) {
 		const modes = [
 			model.gen ? "generate" : "",
 			model.edit ? "edit" : ""
-		].filter(Boolean).join(" / ");
+		]
+			.filter(Boolean)
+			.join(" / ");
 
 		return `• ${name} — ${modes}`;
 	});
@@ -393,8 +483,16 @@ async function listStyles(message) {
 
 function react(api, message, messageID, emoji) {
 	try {
-		if (api && typeof api.setMessageReaction === "function") {
-			api.setMessageReaction(emoji, messageID, () => {}, true);
+		if (
+			api &&
+			typeof api.setMessageReaction === "function"
+		) {
+			api.setMessageReaction(
+				emoji,
+				messageID,
+				() => {},
+				true
+			);
 			return;
 		}
 	} catch (_) {}
@@ -410,7 +508,7 @@ module.exports = {
 	config: {
 		name: "gen",
 		aliases: ["genx", "imagine"],
-		version: "2.4.0",
+		version: "2.4.1",
 		author: "Neoaz 🐊",
 		cooldown: 5,
 		role: 0,
@@ -424,7 +522,10 @@ module.exports = {
 	},
 
 	onStart: async function ({ api, message, args, event }) {
-		const parsed = parseArgs(Array.isArray(args) ? args : []);
+		const parsed = parseArgs(
+			Array.isArray(args) ? args : []
+		);
+
 		const flags = parsed.flags;
 		const modelName = parsed.model;
 		const prompt = parsed.prompt;
@@ -442,7 +543,9 @@ module.exports = {
 			try {
 				return await listStyles(message);
 			} catch (error) {
-				return message.reply(`❌ Styles error: ${error.message}`);
+				return message.reply(
+					`❌ Styles error: ${error.message}`
+				);
 			}
 		}
 
@@ -452,10 +555,15 @@ module.exports = {
 			);
 		}
 
-		const model = MODELS[modelName] ||
+		const model =
+			MODELS[modelName] ||
 			(prompt ? MODELS.imagine : MODELS.image);
 
-		const image = getAttachment(event, flags, modelName);
+		const image = getAttachment(
+			event,
+			flags,
+			modelName
+		);
 
 		const mode = image ? "edit" : "gen";
 		const path = image ? model.edit : model.gen;
@@ -476,14 +584,23 @@ module.exports = {
 			(model.params || []).map(key => key.toLowerCase())
 		);
 
-		["i", "img", "imgurl", "image"].forEach(key => allowed.add(key));
+		["i", "img", "imgurl", "image"].forEach(key => {
+			allowed.add(key);
+		});
 
-		if (model.ar) allowed.add("ar");
-		if (model.style) allowed.add("s");
+		if (model.ar) {
+			allowed.add("ar");
+		}
+
+		if (model.style) {
+			allowed.add("s");
+		}
 
 		for (const key of Object.keys(flags)) {
 			if (!allowed.has(key)) {
-				return message.reply(`❌ Unknown parameter: +${key}`);
+				return message.reply(
+					`❌ Unknown parameter: +${key}`
+				);
 			}
 		}
 
@@ -500,9 +617,13 @@ module.exports = {
 		for (const key of Object.keys(flags)) {
 			const value = flags[key];
 
-			if (value === true) continue;
+			if (value === true) {
+				continue;
+			}
 
-			if (["i", "img", "imgurl", "image"].includes(key)) {
+			if (
+				["i", "img", "imgurl", "image"].includes(key)
+			) {
 				continue;
 			}
 
@@ -516,7 +637,8 @@ module.exports = {
 				}
 
 				if (model.ar === "flux") {
-					params.size = `${size.width}x${size.height}`;
+					params.size =
+						`${size.width}x${size.height}`;
 				} else if (model.ar) {
 					params.width = size.width;
 					params.height = size.height;
@@ -547,16 +669,23 @@ module.exports = {
 			}
 		}
 
-		if (modelName === "nsfw" && !image && !params.prompt) {
-			return message.reply("❌ +nsfw mode requires a prompt.");
+		if (
+			modelName === "nsfw" &&
+			!image &&
+			!params.prompt
+		) {
+			return message.reply(
+				"❌ +nsfw mode requires a prompt."
+			);
 		}
 
 		const required = image
-			? (model.required || [])
-			: (model.requiredGen || model.required || []);
+			? model.required || []
+			: model.requiredGen || model.required || [];
 
 		const missing = required.filter(key =>
-			params[key] === undefined || params[key] === ""
+			params[key] === undefined ||
+			params[key] === ""
 		);
 
 		if (missing.length) {
@@ -572,7 +701,11 @@ module.exports = {
 		try {
 			const data = await requestApi(path, params);
 
-			if (!data || data.ok === false || data.success === false) {
+			if (
+				!data ||
+				data.ok === false ||
+				data.success === false
+			) {
 				throw new Error(
 					(data && (data.message || data.error)) ||
 					"API returned an unsuccessful response."
@@ -580,6 +713,7 @@ module.exports = {
 			}
 
 			await sendResult(message, data);
+
 			react(api, message, messageID, "✅");
 		} catch (error) {
 			console.error(
