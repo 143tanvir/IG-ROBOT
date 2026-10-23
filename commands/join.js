@@ -18,7 +18,7 @@ module.exports = {
 		cooldown: 5,
 		role: 0,
 		description: {
-			en: "List available group chats and join by number"
+			en: "List all available group chats"
 		},
 		usage: {
 			en: "{p}join"
@@ -34,76 +34,132 @@ module.exports = {
 		try {
 			if (typeof api.getThreadList !== "function") {
 				return message.reply(
-					"❌ ICA API does not support getThreadList()."
+					"❌ ICA getThreadList() is unavailable."
 				);
 			}
 
-			/*
-			 * Normalize possible timestamp formats for pagination.
-			 * The ICA server may use different thread field names.
-			 */
-			function getCursor(thread) {
-				if (!thread || typeof thread !== "object") {
-					return null;
+			const threadMap = new Map();
+			const maxPages = 10;
+			const pageSize = 100;
+			let cursor = null;
+
+			// Fetch the default inbox using timestamp pagination.
+			for (let pageNo = 0; pageNo < maxPages; pageNo++) {
+				const result = await api.getThreadList(
+					pageSize,
+					cursor,
+					[]
+				);
+
+				if (!Array.isArray(result) || result.length === 0) {
+					break;
 				}
 
-				const values = [
-					thread.timestamp,
-					thread.lastActivityTimestamp,
-					thread.lastMessageTimestamp,
-					thread.lastActivity,
-					thread.updatedTime,
-					thread.lastMessageTime
-				];
+				let added = 0;
 
-				for (const value of values) {
-					if (value === null || value === undefined) {
+				for (const thread of result) {
+					if (!thread || typeof thread !== "object") {
 						continue;
 					}
 
-					if (
-						typeof value === "string" ||
-						typeof value === "number"
-					) {
-						const result = String(value).trim();
+					const rawID =
+						thread.threadID ??
+						thread.threadId ??
+						thread.thread_id ??
+						thread.id;
 
-						if (result) return result;
+					if (rawID == null || String(rawID) === "") {
+						continue;
+					}
+
+					const id = String(rawID);
+
+					if (!threadMap.has(id)) {
+						threadMap.set(id, thread);
+						added++;
 					}
 				}
 
-				return null;
+				if (added === 0 || result.length < pageSize) {
+					break;
+				}
+
+				const timestamps = result
+					.map(thread =>
+						thread.timestamp ??
+						thread.lastActivityTimestamp ??
+						thread.lastMessageTimestamp
+					)
+					.filter(value =>
+						value !== null &&
+						value !== undefined &&
+						String(value) !== ""
+					);
+
+				if (!timestamps.length) {
+					break;
+				}
+
+				const nextCursor = String(
+					timestamps[timestamps.length - 1]
+				);
+
+				if (nextCursor === cursor) {
+					break;
+				}
+
+				cursor = nextCursor;
 			}
 
-			function getThreadID(thread) {
+			function getID(thread) {
 				const id =
-					thread?.threadID ??
-					thread?.threadId ??
-					thread?.thread_id ??
-					thread?.id;
+					thread.threadID ??
+					thread.threadId ??
+					thread.thread_id ??
+					thread.id;
 
-				if (id === null || id === undefined || id === "") {
-					return null;
-				}
-
-				return String(id);
+				return id == null ? "" : String(id);
 			}
 
-			function isGroupThread(thread) {
-				if (!thread || typeof thread !== "object") {
-					return false;
+			function getMembers(info) {
+				if (!info || typeof info !== "object") {
+					return [];
 				}
 
-				const explicitFlags = [
+				const possible = [
+					info.participantIDs,
+					info.participantIds,
+					info.participants,
+					info.members,
+					info.users,
+					info.userInfo
+				];
+
+				for (const list of possible) {
+					if (Array.isArray(list)) return list;
+
+					if (
+						list &&
+						typeof list === "object"
+					) {
+						return Object.values(list);
+					}
+				}
+
+				return [];
+			}
+
+			function explicitGroup(thread) {
+				const flags = [
 					thread.isGroup,
 					thread.isGroupChat,
 					thread.is_group
 				];
 
 				if (
-					explicitFlags.some(
-						value =>
-							value === true ||
-							String(value).toLowerCase() === "true"
+					flags.some(value =>
+						value === true ||
+						String(value).toLowerCase() === "true"
 					)
 				) {
 					return true;
@@ -116,9 +172,7 @@ module.exports = {
 				];
 
 				for (const value of types) {
-					if (value === null || value === undefined) {
-						continue;
-					}
+					if (value == null) continue;
 
 					const type = String(value).toLowerCase();
 
@@ -131,146 +185,97 @@ module.exports = {
 					}
 				}
 
-				const participants =
-					thread.participantIDs ??
-					thread.participantIds ??
-					thread.participants ??
-					thread.users ??
-					thread.members;
-
-				if (Array.isArray(participants)) {
-					return participants.length > 2;
-				}
-
-				if (
-					participants &&
-					typeof participants === "object"
-				) {
-					return Object.keys(participants).length > 2;
-				}
-
-				// Unknown thread metadata cannot safely identify a group.
 				return false;
 			}
 
+			function isGroup(thread, info) {
+				if (explicitGroup(thread) || explicitGroup(info || {})) {
+					return true;
+				}
+
+				const threadMembers = getMembers(thread);
+				const infoMembers = getMembers(info);
+
+				return (
+					threadMembers.length > 2 ||
+					infoMembers.length > 2
+				);
+			}
+
 			/*
-			 * Fetch multiple pages where the server supports timestamp
-			 * pagination. Deduplicate threads across every page.
+			 * If list metadata is insufficient, use getThreadInfo
+			 * to identify threads with multiple participants.
 			 */
-			const allThreads = new Map();
-			const seenCursors = new Set();
-
-			let cursor = null;
-			let pageCount = 0;
-			const maxPages = 10;
-			const pageSize = 100;
-
-			while (pageCount < maxPages) {
-				const page = await api.getThreadList(
-					pageSize,
-					cursor,
-					[]
-				);
-
-				pageCount++;
-
-				if (!Array.isArray(page) || page.length === 0) {
-					break;
-				}
-
-				let newThreads = 0;
-
-				for (const thread of page) {
-					const id = getThreadID(thread);
-
-					if (!id || allThreads.has(id)) {
-						continue;
-					}
-
-					allThreads.set(id, thread);
-					newThreads++;
-				}
-
-				// No new records means the server is repeating a page.
-				if (newThreads === 0) {
-					break;
-				}
-
-				if (page.length < pageSize) {
-					/*
-					 * A short page can mean the end of the inbox.
-					 * If the server caps page size, try advancing
-					 * using its oldest available timestamp.
-					 */
-				}
-
-				const oldestFirst = page
-					.map(getCursor)
-					.filter(Boolean);
-
-				const nextCursor =
-					oldestFirst.length > 0
-						? oldestFirst[oldestFirst.length - 1]
-						: null;
-
-				if (
-					!nextCursor ||
-					nextCursor === cursor ||
-					seenCursors.has(nextCursor)
-				) {
-					break;
-				}
-
-				seenCursors.add(nextCursor);
-				cursor = nextCursor;
-
-				if (page.length < pageSize) {
-					// A short page is normally the end of the list.
-					break;
-				}
-			}
-
 			const groups = [];
-			const seenGroupIDs = new Set();
+			const infoBatchSize = 10;
+			const allThreads = Array.from(threadMap.values());
 
-			for (const thread of allThreads.values()) {
-				if (!isGroupThread(thread)) continue;
+			for (
+				let start = 0;
+				start < allThreads.length;
+				start += infoBatchSize
+			) {
+				const batch = allThreads.slice(
+					start,
+					start + infoBatchSize
+				);
 
-				const id = getThreadID(thread);
+				await Promise.all(
+					batch.map(async thread => {
+						const id = getID(thread);
+						if (!id) return;
 
-				if (!id || seenGroupIDs.has(id)) continue;
-				seenGroupIDs.add(id);
+						let info = null;
 
-				const rawName =
-					thread.name ||
-					thread.threadName ||
-					thread.thread_name ||
-					thread.title ||
-					thread.subject ||
-					"Unnamed Group";
+						if (
+							!isGroup(thread, null) &&
+							typeof api.getThreadInfo === "function"
+						) {
+							try {
+								info = await api.getThreadInfo(id);
+							} catch (_) {
+								// Keep the list response as fallback.
+							}
+						}
 
-				const name = String(rawName).trim();
+						if (!isGroup(thread, info)) return;
 
-				groups.push({
-					id,
-					name: name || "Unnamed Group"
-				});
-			}
+						const source = info || thread;
 
-			if (groups.length === 0) {
-				return message.reply(
-					"❌ No groups were found in the ICA thread list.\n\n" +
-					`Threads received: ${allThreads.size}\n` +
-					"Your ICA server may be returning only inbox threads " +
-					"or using a different group metadata format."
+						const name = String(
+							source.name ||
+							source.threadName ||
+							source.thread_name ||
+							source.title ||
+							thread.name ||
+							thread.threadName ||
+							thread.title ||
+							"Unnamed Group"
+						).trim();
+
+						groups.push({
+							id,
+							name: name || "Unnamed Group"
+						});
+					})
 				);
 			}
 
-			groups.sort((a, b) =>
-				a.name.localeCompare(b.name)
-			);
+			const uniqueGroups = Array.from(
+				new Map(
+					groups.map(group => [group.id, group])
+				).values()
+			).sort((a, b) => a.name.localeCompare(b.name));
 
-			const lines = groups.map((group, index) => {
+			if (!uniqueGroups.length) {
+				return message.reply(
+					"❌ No groups detected.\n\n" +
+					`Inbox threads fetched: ${threadMap.size}\n` +
+					"Check the ICA server response and thread metadata."
+				);
+			}
+
+			const list = uniqueGroups.map((group, index) => {
 				const number = String(index + 1).padStart(2, "0");
 				return `${number}. ${group.name}`;
 			});
@@ -280,17 +285,17 @@ module.exports = {
        GROUP LIST
 ──────────────
 
-${lines.join("\n")}
+${list.join("\n")}
 
-Total Groups: ${groups.length}
+Total Groups: ${uniqueGroups.length}
 
-Reply with a group number to join.
+Reply with a number to join.
 (Admin only)
 ──────────────`;
 
 			const sent = await message.reply(text);
 
-			if (!sent?.messageID) return;
+			if (!sent || !sent.messageID) return;
 
 			setReplyHandler(
 				async ({
@@ -301,9 +306,7 @@ Reply with a group number to join.
 						? config.adminBot.map(String)
 						: [];
 
-					if (
-						!admins.includes(String(replyEvent.senderID))
-					) {
+					if (!admins.includes(String(replyEvent.senderID))) {
 						return replyMessage.reply(
 							"❌ Only bot admins can use the group number."
 						);
@@ -321,40 +324,37 @@ Reply with a group number to join.
 
 					const index = Number(input) - 1;
 
-					if (index < 0 || index >= groups.length) {
-						return replyMessage.reply(
-							`❌ Invalid number. Choose 1-${groups.length}.`
-						);
-					}
-
-					const selected = groups[index];
-
 					if (
-						typeof api.addUserToThread !== "function" &&
-						typeof api.addUserToGroup !== "function"
+						index < 0 ||
+						index >= uniqueGroups.length
 					) {
 						return replyMessage.reply(
-							"❌ ICA does not support adding users to groups."
+							`❌ Invalid number. Choose 1-${uniqueGroups.length}.`
 						);
 					}
 
-					try {
-						const addUser =
-							typeof api.addUserToThread === "function"
-								? api.addUserToThread.bind(api)
-								: api.addUserToGroup.bind(api);
+					const selected = uniqueGroups[index];
 
-						await addUser(
+					try {
+						if (
+							typeof api.addUserToThread !== "function"
+						) {
+							return replyMessage.reply(
+								"❌ addUserToThread() is unavailable."
+							);
+						}
+
+						await api.addUserToThread(
 							String(replyEvent.senderID),
 							selected.id
 						);
 
 						return replyMessage.reply(
 `──────────────
-       SUCCESS
+        SUCCESS
 ──────────────
 
-Join request sent for:
+Request completed for:
 
 ${selected.name}
 
@@ -363,14 +363,14 @@ ${selected.name}
 					} catch (error) {
 						return replyMessage.reply(
 `──────────────
-        ERROR
+         ERROR
 ──────────────
 
-Unable to add you to:
+Unable to add user to:
 
 ${selected.name}
 
-${error.message || "Please try again."}
+${error.message || String(error)}
 
 ──────────────`
 						);
