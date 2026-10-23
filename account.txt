@@ -3,13 +3,13 @@
 # This is a generated file! Do not edit.
 
 .instagram.com	TRUE	/	TRUE	1818773124	ig_did	DDC4882B-5222-480C-9925-1640A1DA663D
-.instagram.com	TRUE	/	TRUE	1821797125	datr	BROHanP35fjj5yIfIGpnxV5r
+.instagram.com	TRUE	/	TRUE	1821797124	datr	BROHanP35fjj5yIfIGpnxV5r
 .instagram.com	TRUE	/	TRUE	1821797127	ps_l	1
 .instagram.com	TRUE	/	TRUE	1821797127	ps_n	1
 .instagram.com	TRUE	/	TRUE	1821797133	mid	aocTBQABAAFSy6zx7Rl9bCvgvQrJ
-.instagram.com	TRUE	/	TRUE	1793340939	dpr	2.6875
-.instagram.com	TRUE	/	TRUE	1827296141	csrftoken	p7Ky6C1qewTweuENbPxjbp47QjqGvCXK
-.instagram.com	TRUE	/	TRUE	1800512141	ds_user_id	42962831350
-.instagram.com	TRUE	/	TRUE	1793340939	wd	402x805
-.instagram.com	TRUE	/	TRUE	1824272078	sessionid	42962831350%3ATQ4XICxuaG8X4y%3A2%3AAYmkFysj5ULQzf9F8qY1k68P3Dyco-2rO-65nSWDkg
-.instagram.com	TRUE	/	TRUE	0	rur	NHA%2C17841443180500353%2C1793945773%3A01ffcd521ad6290d45e919c97a82063ad0b8e988b1df0bb2b0cfab61b0b7459d5db01dfe
+.instagram.com	TRUE	/	TRUE	1793342795	dpr	2.6875
+.instagram.com	TRUE	/	TRUE	1827297995	csrftoken	p7Ky6C1qewTweuENbPxjbp47QjqGvCXK
+.instagram.com	TRUE	/	TRUE	1800513995	ds_user_id	42962831350
+.instagram.com	TRUE	/	TRUE	1793342795	wd	402x805
+.instagram.com	TRUE	/	TRUE	1824272077	sessionid	42962831350%3ATQ4XICxuaG8X4y%3A2%3AAYmkFysj5ULQzf9F8qY1k68P3Dyco-2rO-65nSWDkg
+.instagram.com	TRUE	/	TRUE	0	rur	NHA%2C17841443180500353%2C1793947600%3A01ff906a2b2f361601f53a59c6f79a925726dc05c126827180187eaf7d5e1d9a71c1ee30
