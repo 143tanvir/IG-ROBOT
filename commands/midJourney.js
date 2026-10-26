@@ -86,7 +86,7 @@ module.exports = {
       );
 
       const tanvir143_sent = await message.reply({
-        body: "✅ MJ IMAGE GENERATED\n\nReply to this message with `all` to get the remaining images.",
+        body: "✅ MJ IMAGE GENERATED\n\nReply to this message within   all   to see all image.",
         attachment: tanvir143_stream.data
       });
 
@@ -123,7 +123,7 @@ module.exports = {
               });
 
               await replyMessage.reply({
-                body: "ok",
+                body: "",
                 attachment: response.data
               });
             }
