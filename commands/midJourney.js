@@ -21,7 +21,7 @@ module.exports = {
     aliases: ["mj", "midj"],
     version: "1.1.0",
     author: "Tanvir Ahmed (API BY Toshiro Editz)",
-    cooldwn: 7,
+    cooldown: 7,
     role: 0,
     category: "users cmd",
     guide: {
