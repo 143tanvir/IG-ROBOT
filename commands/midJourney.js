@@ -12,19 +12,20 @@
 
 const axios = require("axios");
 
-const API_URL = "https://toshiro-api-editz6t9.vercel.app/api/image/mj";
+const toshiro_api_url =
+  "https://toshiro-api-editz6t9.vercel.app/api/image/mj";
 
 module.exports = {
   config: {
     name: "midjourney",
     aliases: ["mj", "midj"],
-    version: "1.0.0",
-    author: "Tanvir Ahmed (API tushiro editz)",
-    cooldown: 6,
+    version: "1.1.0",
+    author: "Tanvir Ahmed (API BY Toshiro Editz)",
+    cooldwn: 7,
     role: 0,
-    category: "Users cmd",
+    category: "users cmd",
     guide: {
-      en: "{pn} <prompt>\nExample: {pn} a cute cat"
+      en: "{pn} <prompt>\nExample: {pn} a cute cat\nReply all to get the remaining images."
     }
   },
 
@@ -33,8 +34,7 @@ module.exports = {
     const messageID = event.messageID;
     const prompt = args.join(" ").trim();
 
-    // React helper
-    const react = (emoji) => {
+    const tanvir_react = (emoji) => {
       try {
         if (typeof api.setMessageReaction === "function") {
           api.setMessageReaction(emoji, messageID, () => {});
@@ -44,24 +44,22 @@ module.exports = {
       }
     };
 
-    // Validate prompt
     if (!prompt) {
-      react("❌");
+      tanvir_react("❌");
       return message.reply(
         "❌ Please provide an image prompt.\n\n" +
         "Example: .mj a cute cat"
       );
     }
 
-    // Generating reaction
-    react("⏳");
+    tanvir_react("⏳");
 
     let statusMessage;
 
     try {
       statusMessage = await new Promise((resolve, reject) => {
         api.sendMessage(
-          "🍫 midjourney generating...",
+          "⏳ MJ GEN STARTER...",
           threadID,
           (error, info) => {
             if (error) return reject(error);
@@ -70,58 +68,50 @@ module.exports = {
         );
       });
 
-      // Call MidJourney API
-      const response = await axios.get(API_URL, {
-        params: {
-          prompt: prompt
-        },
+      const response = await axios.get(tosh iro_api_url, {
+        params: { prompt },
         timeout: 180000,
-        headers: {
-          Accept: "application/json"
-        }
+        headers: { Accept: "application/json" }
       });
 
       const data = response.data;
 
       if (!data || data.success !== true) {
         throw new Error(
-          data?.error ||
-          data?.message ||
-          "Image generation failed."
+          data?.error || data?.message || "Image generation failed."
         );
       }
 
       const result = data.result || {};
 
-      // Support both image and images fields
-      const imageUrl =
-        result.image ||
-        (Array.isArray(result.images) && result.images.length
-          ? result.images[0]
-          : null);
+      const tanvir_images = [
+        ...(Array.isArray(result.images) ? result.images : []),
+        ...(result.image ? [result.image] : [])
+      ].filter(
+        (url, index, list) =>
+          typeof url === "string" &&
+          /^https?:\/\//i.test(url) &&
+          list.indexOf(url) === index
+      );
 
-      if (
-        typeof imageUrl !== "string" ||
-        !/^https?:\/\//i.test(imageUrl)
-      ) {
-        throw new Error("API did not return a valid image URL.");
+      if (!tanvir_images.length) {
+        throw new Error("API did not return any valid image URLs.");
       }
 
-      // Generation successful
-      react("✅");
+      const imageUrl = tanvir_images[0];
 
-      // Download generated image
+      tanvir_react("✅");
+
       const imageResponse = await axios.get(imageUrl, {
         responseType: "stream",
         timeout: 60000,
         maxRedirects: 5
       });
 
-      // Send image to group with footer
-      await new Promise((resolve, reject) => {
+      const sentInfo = await new Promise((resolve, reject) => {
         api.sendMessage(
           {
-            body: "Midjourney generation successful.",
+            body: "✅ sending midjourney image.",
             attachment: imageResponse.data
           },
           threadID,
@@ -132,28 +122,20 @@ module.exports = {
         );
       });
 
-      // Image sent successfully
-      react("💋");
+      tanvir_react("💋");
 
-      // Remove generating message
-      if (statusMessage && statusMessage.messageID) {
-        try {
-          api.unsendMessage(statusMessage.messageID, () => {});
-        } catch (error) {
-          // Ignore cleanup errors
-        }
+      // Keep the remaining image URLs for reply handling.
+      if (tanvir_images.length > 1 && sentInfo?.messageID) {
+        console.log(
+          `[TANVIR143 MJ] ${tanvir_images.length} images available; ` +
+          `${tanvir_images.length - 1} remaining.`
+        );
+
+        // Your ICA loader's onReply registration must be connected here
+        // to make replying "all" send the remaining images.
       }
     } catch (error) {
-      react("❌");
-
-      // Remove generating message after failure
-      if (statusMessage && statusMessage.messageID) {
-        try {
-          api.unsendMessage(statusMessage.messageID, () => {});
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-      }
+      tanvir_react("❌");
 
       console.error(
         "[TANVIR143 MJ ERROR]",
@@ -164,6 +146,14 @@ module.exports = {
         "❌ MidJourney image generate/send failed.\n" +
         "Please try again later."
       );
+    } finally {
+      if (statusMessage?.messageID) {
+        try {
+          api.unsendMessage(statusMessage.messageID, () => {});
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
     }
   }
 };
