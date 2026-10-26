@@ -21,7 +21,7 @@
     "test:live": "node test/live-send.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "4.16.12",
+    "os": "0.1.2",
     "ws": "8.22.0",
     "jimp": "1.6.1",
     "mongodb": "7.7.0",
