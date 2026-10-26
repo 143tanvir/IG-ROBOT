@@ -4,8 +4,6 @@
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
- * Instagram: @ig.tanvir_ahmed
- * Bot: Tanvir143 | IG-ROBOT
  */
 
 "use strict";
@@ -15,8 +13,6 @@ const axios = require("axios");
 const toshiro_api_url =
   "https://toshiro-api-editz6t9.vercel.app/api/image/mj";
 
-const tanvir_mj_results = new Map();
-
 module.exports = {
   config: {
     name: "midjourney",
@@ -25,211 +21,123 @@ module.exports = {
     author: "Tanvir Ahmed (API BY Toshiro Editz)",
     cooldown: 7,
     role: 0,
-    shortDescription: "Generate MidJourney AI images",
-    description: "Generate an image and reply all for the remaining images.",
+    shortDescription: "Generate MidJourney images",
+    description: "Generate images and reply all for the remaining images",
     category: "users cmd",
     guide: {
-      en: "{pn} <prompt>\nExample: {pn} a cute cat\nReply all to get the remaining images."
+      en: "{pn} <prompt>\nReply all to the generated image for remaining images."
     }
   },
 
   onStart: async function ({ api, event, args, message }) {
-    const threadID = event.threadID;
-    const messageID = event.messageID;
     const prompt = args.join(" ").trim();
-
-    const react = (emoji, targetID = messageID) => {
-      try {
-        api.setMessageReaction(emoji, targetID, () => {});
-      } catch (error) {
-        // Ignore reaction errors
-      }
-    };
-
-    const sendMessage = (content) =>
-      new Promise((resolve, reject) => {
-        api.sendMessage(content, threadID, (error, info) => {
-          if (error) return reject(error);
-          resolve(info);
-        });
-      });
+    const threadID = event.threadID;
+    const react = emoji =>
+      api.setMessageReaction(emoji, event.messageID, () => {});
 
     if (!prompt) {
       react("❌");
-      return message.reply(
-        "❌ Please provide an image prompt.\n\n" +
-        "Example: .mj a cute cat"
-      );
+      return message.reply("❌ Example: .mj a cute cat");
     }
 
-    react("⏳");
-
-    let statusMessage;
+    let status;
 
     try {
-      statusMessage = await sendMessage(
-        "⏳ MJ GEN STARTED..."
+      react("⏳");
+
+      status = await new Promise((resolve, reject) =>
+        api.sendMessage("⏳ MJ GEN STARTED...", threadID,
+          (err, info) => err ? reject(err) : resolve(info))
       );
 
-      const response = await axios.get(toshiro_api_url, {
+      const { data } = await axios.get(toshiro_api_url, {
         params: { prompt },
-        timeout: 180000,
-        headers: { Accept: "application/json" }
+        timeout: 180000
       });
 
-      const data = response.data;
-
-      if (!data || data.success !== true) {
-        throw new Error(
-          data?.error || data?.message || "Image generation failed."
-        );
-      }
+      if (data?.success !== true)
+        throw new Error(data?.message || "API failed");
 
       const result = data.result || {};
-
-      // The API returns four URLs in result.images.
-      const images = [
+      const images = [...new Set([
         ...(Array.isArray(result.images) ? result.images : []),
         ...(result.image ? [result.image] : [])
-      ].filter(
-        (url, index, list) =>
-          typeof url === "string" &&
-          /^https?:\/\//i.test(url) &&
-          list.indexOf(url) === index
-      );
+      ].filter(url => typeof url === "string" && /^https?:\/\//i.test(url)))];
 
-      if (!images.length) {
-        throw new Error("No valid image URLs returned by the API.");
-      }
+      if (!images.length) throw new Error("No image URLs returned");
 
-      // Send the first image only.
-      const imageResponse = await axios.get(images[0], {
+      const stream = await axios.get(images[0], {
         responseType: "stream",
-        timeout: 60000,
-        maxRedirects: 5
+        timeout: 60000
       });
 
-      const sentInfo = await sendMessage({
-        body: "✅ sending MJ image.",
-        attachment: imageResponse.data
-      });
+      const sent = await new Promise((resolve, reject) =>
+        api.sendMessage({
+          body: "✅ SENDING MJ IMAGE...",
+          attachment: stream.data
+        }, threadID, (err, info) => err ? reject(err) : resolve(info))
+      );
 
       react("💋");
 
-      // Save remaining URLs against the generated image message.
-      if (images.length > 1 && sentInfo?.messageID) {
-        tanvir_mj_results.set(sentInfo.messageID, {
-          author: String(event.senderID),
+      // Register remaining images for GoatBot V2 reply handling.
+      if (images.length > 1 && sent?.messageID && global.GoatBot?.onReply?.set) {
+        global.GoatBot.onReply.set(sent.messageID, {
+          commandName: "midjourney",
+          messageID: sent.messageID,
+          author: event.senderID,
           threadID,
           images: images.slice(1)
         });
-
-        console.log(
-          `[TANVIR143 MJ] ${images.length} images received; ` +
-          `${images.length - 1} remaining.`
-        );
+      } else if (images.length > 1) {
+        console.error("[TANVIR143 MJ] Reply handler registry unavailable.");
       }
 
       react("✅");
     } catch (error) {
       react("❌");
-
-      console.error(
-        "[TANVIR143 MJ ERROR]",
-        error.response?.data || error.message
-      );
-
-      return message.reply(
-        "❌ MidJourney image generate/send failed.\n" +
-        "Please try again later."
-      );
+      console.error("[TANVIR143 MJ ERROR]", error.response?.data || error.message);
+      return message.reply("❌ MidJourney image generate/send failed.");
     } finally {
-      if (statusMessage?.messageID) {
-        try {
-          api.unsendMessage(statusMessage.messageID, () => {});
-        } catch (error) {
-          // Ignore cleanup errors
-        }
+      if (status?.messageID) {
+        api.unsendMessage(status.messageID, () => {});
       }
     }
   },
 
-  onReply: async function ({ api, event, message }) {
-    if ((event.body || "").trim().toLowerCase() !== "all") {
-      return;
-    }
+  onReply: async function ({ api, event, Reply, message }) {
+    if ((event.body || "").trim().toLowerCase() !== "all") return;
 
-    // Match the reply to the original generated image.
-    const replyID =
-      event.messageReply?.messageID ||
-      event.messageReply?.messageID;
+    if (String(event.senderID) !== String(Reply.author))
+      return message.reply("❌ Only the image creator can use all.");
 
-    const saved = tanvir_mj_results.get(replyID);
+    const images = Reply.images || [];
+    if (!images.length)
+      return message.reply("❌ No remaining images.");
 
-    if (!saved) {
-      return message.reply(
-        "❌ Image session not found. Generate a new image with .mj."
-      );
-    }
-
-    if (String(event.senderID) !== saved.author) {
-      return message.reply(
-        "❌ Only the person who generated this image can request all images."
-      );
-    }
-
-    const remaining = saved.images.slice();
-
-    if (!remaining.length) {
-      tanvir_mj_results.delete(replyID);
-      return message.reply("❌ No remaining images available.");
-    }
+    // Remove registration before sending to prevent duplicate sends.
+    global.GoatBot?.onReply?.delete(Reply.messageID);
 
     try {
-      for (const url of remaining) {
-        const imageResponse = await axios.get(url, {
+      for (const url of images) {
+        const response = await axios.get(url, {
           responseType: "stream",
-          timeout: 60000,
-          maxRedirects: 5
+          timeout: 60000
         });
 
-        await new Promise((resolve, reject) => {
-          api.sendMessage(
-            {
-              body: "✅ Sending MJ images...",
-              attachment: imageResponse.data
-            },
-            saved.threadID,
-            (error) => {
-              if (error) return reject(error);
-              resolve();
-            }
-          );
-        });
+        await new Promise((resolve, reject) =>
+          api.sendMessage({
+            body: "Enjoy using tanvir143 robot.",
+            attachment: response.data
+          }, event.threadID, err => err ? reject(err) : resolve())
+        );
       }
 
-      tanvir_mj_results.delete(replyID);
-
-      try {
-        api.setMessageReaction("💋", event.messageID, () => {});
-      } catch (error) {
-        // Ignore reaction errors
-      }
+      api.setMessageReaction("💋", event.messageID, () => {});
     } catch (error) {
-      console.error(
-        "[TANVIR143 MJ REPLY ERROR]",
-        error.response?.data || error.message
-      );
-
-      try {
-        api.setMessageReaction("❌", event.messageID, () => {});
-      } catch (e) {
-        // Ignore reaction errors
-      }
-
-      return message.reply(
-        "❌ Failed to send all remaining images."
-      );
+      console.error("[TANVIR143 MJ REPLY ERROR]", error.message);
+      api.setMessageReaction("❌", event.messageID, () => {});
+      return message.reply("❌ Failed to send all remaining images.");
     }
   }
 };
