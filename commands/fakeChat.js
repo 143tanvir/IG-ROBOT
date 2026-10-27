@@ -1,236 +1,449 @@
+
 /**
  * File Name: fakechat.js
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
  * Instagram: @ig.tanvir_ahmed
+ * Bot: IG-ROBOT
  */
 
-"use strict";
-
+const fs = require("fs-extra");
+const path = require("path");
 const axios = require("axios");
 const sharp = require("sharp");
-const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { Readable } = require("stream");
+const ica = require("../Tanvir143/ica");
 
-const WIDTH = 1200;
-const HEIGHT = 900;
-const BAR_URL = "https://i.imgur.com/zGfbY4Z.jpeg";
+const TOP_BAR_URL = "https://i.imgur.com/v6KSWg6.jpeg";
+const BOTTOM_BAR_URL = "https://i.imgur.com/ZwbNx74.jpeg";
 
-let barCache = null;
+const W = 720;
+const FONT = "Arial, sans-serif";
+const FONT_SIZE = 26;
+const LINE_HEIGHT = 34;
+const PAD_X = 22;
+const PAD_Y = 16;
+const MAX_BUBBLE_W = 460;
 
 module.exports = {
   config: {
     name: "fakechat",
-    aliases: ["fc"],
+    aliases: ["fchat"],
     version: "4.0.0",
-    author: "Tanvir143",
-    countDown: 5,
-    role: 0,
-    shortDescription: "Create a fake chat image",
-    category: "Users Cmd",
-    guide: "{pn} message text"
+    author: "EryXenX",
+    cooldown: 5,
+    role: 2,
+    description: "Generate a fake Messenger chat screenshot",
+    category: "utility",
+    guide: {
+      en: "Reply to a message with {pn} <your reply>"
+    }
   },
 
-  onStart: async function ({ api, event, args, message }) {
-    try {
-      const text = args.join(" ").trim();
+  onStart: async function ({ event, message, usersData, args, api }) {
+    const reply = event.messageReply;
 
-      if (!text) {
-        return message.reply("ব্যবহার: .fakechat তোমার মেসেজ");
+    if (!reply) {
+      return message.reply(
+        "❌ | Reply to a message and write your reply after the command."
+      );
+    }
+
+    const friendID = String(reply.senderID || "");
+    const friendText = String(reply.body || "").trim();
+    const myText = args.join(" ").trim();
+
+    if (!friendID || !friendText || !myText) {
+      return message.reply(
+        "❌ | Replied message and your reply must both contain text."
+      );
+    }
+
+    const cacheDir = path.join(__dirname, "cache");
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const files = {
+      top: path.join(cacheDir, `fc_top_${id}.jpg`),
+      bottom: path.join(cacheDir, `fc_bottom_${id}.jpg`),
+      avatar: path.join(cacheDir, `fc_avatar_${id}.jpg`),
+      circle: path.join(cacheDir, `fc_circle_${id}.png`),
+      output: path.join(cacheDir, `fc_output_${id}.jpg`)
+    };
+
+    try {
+      await fs.ensureDir(cacheDir);
+
+      const friendName = await usersData
+        .getName(friendID)
+        .catch(() => "Instagram User");
+
+      // Instagram profile picture via the installed ICA API.
+      const avatarURL = await getInstagramAvatar(api, event, friendID);
+
+      await Promise.all([
+        downloadImage(TOP_BAR_URL, files.top),
+        downloadImage(BOTTOM_BAR_URL, files.bottom),
+        downloadImage(avatarURL, files.avatar)
+      ]);
+
+      const [topMeta, bottomMeta] = await Promise.all([
+        sharp(files.top).metadata(),
+        sharp(files.bottom).metadata()
+      ]);
+
+      if (!topMeta.width || !topMeta.height ||
+          !bottomMeta.width || !bottomMeta.height) {
+        throw new Error("Invalid template image dimensions");
       }
 
-      // Fixed 4:3 canvas — never stretch the final image.
-      const canvas = createCanvas(WIDTH, HEIGHT);
-      const ctx = canvas.getContext("2d");
+      const topH = Math.round(topMeta.height * W / topMeta.width);
+      const bottomH = Math.round(bottomMeta.height * W / bottomMeta.width);
 
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      // Prepare circular Instagram avatar.
+      const avatarSize = 200;
 
-      const bubbleX = 145;
-      const bubbleY = 90;
-      const bubbleW = 1010;
-      const maxBubbleH = 665;
-      const textX = bubbleX + 30;
-      const textMaxW = bubbleW - 60;
-      const barH = 105;
+      const circleSVG = Buffer.from(`
+        <svg width="${avatarSize}" height="${avatarSize}"
+             xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="circle">
+              <circle cx="100" cy="100" r="100"/>
+            </clipPath>
+          </defs>
+          <image href="avatar"
+            x="0" y="0" width="200" height="200"
+            preserveAspectRatio="xMidYMid slice"
+            clip-path="url(#circle)"/>
+        </svg>
+      `);
 
-      let fontSize = 32;
-      let lineHeight;
-      let lines;
-      let bubbleH;
+      // Use Sharp's native circular crop for reliable output.
+      await sharp(files.avatar)
+        .rotate()
+        .resize(avatarSize, avatarSize, {
+          fit: "cover",
+          position: "centre"
+        })
+        .composite([{
+          input: Buffer.from(`
+            <svg width="${avatarSize}" height="${avatarSize}"
+                 xmlns="http://www.w3.org/2000/svg">
+              <circle cx="100" cy="100" r="100" fill="white"/>
+            </svg>
+          `),
+          blend: "dest-in"
+        }])
+        .png()
+        .toFile(files.circle);
 
-      function wrapText(value, maxWidth) {
-        const result = [];
+      const avatarBuffer = await fs.readFile(files.circle);
+      const topBuffer = await sharp(files.top)
+        .resize(W, topH)
+        .jpeg()
+        .toBuffer();
 
-        for (const paragraph of value.split("\n")) {
-          if (!paragraph.trim()) {
-            result.push("");
+      const bottomBuffer = await sharp(files.bottom)
+        .resize(W, bottomH)
+        .jpeg()
+        .toBuffer();
+
+      const name = fitName(String(friendName || "Instagram User"), 290);
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Dhaka"
+      });
+
+      const measureText = (text, size = FONT_SIZE) =>
+        [...text].reduce((width, char) => {
+          if (/[ilI.,'!:;|]/.test(char)) return width + size * 0.28;
+          if (/[MW@#%&]/.test(char)) return width + size * 0.85;
+          if (char === " ") return width + size * 0.30;
+          if (char.charCodeAt(0) > 255) return width + size;
+          return width + size * 0.54;
+        }, 0);
+
+      const wrapText = (text, maxWidth) => {
+        const output = [];
+
+        for (const paragraph of String(text).split(/\r?\n/)) {
+          const words = paragraph.split(/\s+/).filter(Boolean);
+          let line = "";
+
+          if (!words.length) {
+            output.push("");
             continue;
           }
 
-          let line = "";
+          for (const word of words) {
+            let pieces = [word];
 
-          for (const word of paragraph.split(/\s+/)) {
-            // Split very long words by measured width.
-            let part = "";
+            while (pieces.some(piece => measureText(piece) > maxWidth)) {
+              const current = pieces.shift();
+              let part = "";
 
-            for (const char of word) {
-              const next = part + char;
-
-              if (ctx.measureText(next).width > maxWidth && part) {
-                if (line) {
-                  result.push(line);
-                  line = "";
+              for (const char of current) {
+                if (part && measureText(part + char) > maxWidth) {
+                  pieces.unshift(part);
+                  part = char;
+                  break;
                 }
-
-                result.push(part);
-                part = char;
-              } else {
-                part = next;
+                part += char;
               }
+
+              if (part) pieces.unshift(part);
+
+              if (!pieces.length) break;
+
+              // Prevent endless splitting of a single long word.
+              if (pieces[0] === current) break;
             }
 
-            if (!part) continue;
+            for (const piece of pieces) {
+              const test = line ? `${line} ${piece}` : piece;
 
-            const candidate = line ? `${line} ${part}` : part;
-
-            if (ctx.measureText(candidate).width <= maxWidth) {
-              line = candidate;
-            } else {
-              if (line) result.push(line);
-              line = part;
+              if (measureText(test) > maxWidth && line) {
+                output.push(line);
+                line = piece;
+              } else {
+                line = test;
+              }
             }
           }
 
-          if (line) result.push(line);
+          if (line) output.push(line);
         }
 
-        return result.length ? result : [""];
-      }
+        return output.length ? output : [""];
+      };
 
-      // Fit text by changing font size, not image dimensions.
-      do {
-        lineHeight = Math.round(fontSize * 1.4);
-        ctx.font = `${fontSize}px sans-serif`;
-        lines = wrapText(text, textMaxW);
-        bubbleH = Math.max(100, 46 + lines.length * lineHeight);
+      const friendLines = wrapText(friendText, MAX_BUBBLE_W - PAD_X * 2);
+      const myLines = wrapText(myText, MAX_BUBBLE_W - PAD_X * 2);
 
-        if (bubbleH <= maxBubbleH) break;
-        fontSize -= 1;
-      } while (fontSize >= 17);
+      const bubbleWidth = lines =>
+        Math.min(
+          MAX_BUBBLE_W,
+          Math.ceil(Math.max(...lines.map(line => measureText(line)))) +
+            PAD_X * 2
+        );
 
-      // Draw bubble.
-      ctx.fillStyle = "#303030";
-      ctx.beginPath();
-      ctx.roundRect(bubbleX, bubbleY, bubbleW, Math.min(bubbleH, maxBubbleH), 30);
-      ctx.fill();
+      const friendW = bubbleWidth(friendLines);
+      const myW = bubbleWidth(myLines);
+      const friendH = friendLines.length * LINE_HEIGHT + PAD_Y * 2;
+      const myH = myLines.length * LINE_HEIGHT + PAD_Y * 2;
 
-      // Draw readable text inside the bubble.
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `${fontSize}px sans-serif`;
-      ctx.textBaseline = "top";
+      const chatTop = 40;
+      const gap = 30;
+      const H = topH + chatTop + friendH + gap + myH + 50 + bottomH;
 
-      lines.forEach((line, index) => {
-        const y = bubbleY + 24 + index * lineHeight;
+      const esc = value =>
+        String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&apos;");
 
-        if (y + lineHeight < bubbleY + maxBubbleH - 8) {
-          ctx.fillText(line, textX, y);
+      const svgText = (lines, x, y, color) =>
+        lines.map((line, index) => `
+          <text x="${x}" y="${y + (index + 1) * LINE_HEIGHT - 8}"
+            fill="${color}" font-family="${FONT}" font-size="${FONT_SIZE}">
+            ${esc(line)}
+          </text>
+        `).join("");
+
+      const headerSize = 56;
+      const headerX = 86;
+      const headerY = topH - 45;
+
+      const friendX = 40 + 44 + 12;
+      const friendY = topH + chatTop;
+      const myY = friendY + friendH + gap;
+      const myX = W - 40 - myW;
+
+      const overlaySVG = Buffer.from(`
+        <svg width="${W}" height="${H}"
+             xmlns="http://www.w3.org/2000/svg">
+          <rect width="${W}" height="${H}" fill="#000"/>
+
+          <text x="24" y="44" fill="#fff"
+            font-family="${FONT}" font-size="20"
+            font-weight="bold">${esc(time)}</text>
+
+          <image href="avatar"
+            x="${headerX}" y="${headerY - headerSize / 2}"
+            width="${headerSize}" height="${headerSize}"/>
+
+          <circle cx="${headerX + headerSize - 4}"
+            cy="${headerY + headerSize / 2 - 4}"
+            r="12" fill="#000"/>
+          <circle cx="${headerX + headerSize - 4}"
+            cy="${headerY + headerSize / 2 - 4}"
+            r="9" fill="#31a24c"/>
+
+          <text x="${headerX + headerSize + 14}" y="${headerY + 8}"
+            fill="#fff" font-family="${FONT}" font-size="28"
+            font-weight="bold">${esc(name)}</text>
+
+          <rect x="${friendX}" y="${friendY}"
+            width="${friendW}" height="${friendH}"
+            rx="20" fill="#3a3b3c"/>
+
+          ${svgText(friendLines, friendX + PAD_X, friendY + PAD_Y, "#fff")}
+
+          <image href="avatar" x="40"
+            y="${friendY + friendH / 2 - 22}"
+            width="44" height="44"/>
+
+          <rect x="${myX}" y="${myY}"
+            width="${myW}" height="${myH}"
+            rx="20" fill="#0084ff"/>
+
+          ${svgText(myLines, myX + PAD_X, myY + PAD_Y, "#fff")}
+        </svg>
+      `);
+
+      // Composite using Sharp; no Canvas dependency.
+      await sharp({
+        create: {
+          width: W,
+          height: H,
+          channels: 3,
+          background: "#000000"
         }
-      });
-
-      // Replied user's avatar, or sender's avatar by default.
-      const targetID = event.messageReply?.senderID || event.senderID;
-
-      try {
-        const info = await new Promise((resolve, reject) => {
-          api.getUserInfo(targetID, (err, data) => {
-            if (err) reject(err);
-            else resolve(data);
-          });
-        });
-
-        const user = info?.[targetID];
-        const avatarURL =
-          user?.thumbSrc ||
-          user?.profilePicture ||
-          user?.profilePicUrl;
-
-        if (avatarURL) {
-          const response = await axios.get(avatarURL, {
-            responseType: "arraybuffer",
-            timeout: 10000,
-            headers: { "User-Agent": "Mozilla/5.0" }
-          });
-
-          const avatar = await loadImage(Buffer.from(response.data));
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(80, 132, 38, 0, Math.PI * 2);
-          ctx.clip();
-          ctx.drawImage(avatar, 42, 94, 76, 76);
-          ctx.restore();
-        }
-      } catch (error) {
-        console.log("[FakeChat] Avatar unavailable:", error.message);
-      }
-
-      // Cache input bar in memory; no temporary files.
-      if (!barCache) {
-        try {
-          const response = await axios.get(BAR_URL, {
-            responseType: "arraybuffer",
-            timeout: 12000,
-            headers: { "User-Agent": "Mozilla/5.0" }
-          });
-
-          barCache = Buffer.from(response.data);
-        } catch (error) {
-          console.log("[FakeChat] Input bar unavailable:", error.message);
-        }
-      }
-
-      if (barCache) {
-        try {
-          const bar = await loadImage(barCache);
-
-          // Fit the bar without distorting its aspect ratio.
-          const scale = Math.min(WIDTH / bar.width, barH / bar.height);
-          const drawW = bar.width * scale;
-          const drawH = bar.height * scale;
-
-          ctx.fillStyle = "#080808";
-          ctx.fillRect(0, HEIGHT - barH, WIDTH, barH);
-
-          ctx.drawImage(
-            bar,
-            (WIDTH - drawW) / 2,
-            HEIGHT - barH + (barH - drawH) / 2,
-            drawW,
-            drawH
-          );
-        } catch (error) {
-          console.log("[FakeChat] Input bar render failed:", error.message);
-        }
-      }
-
-      const output = await sharp(canvas.toBuffer("image/png"))
+      })
+        .composite([
+          { input: topBuffer, left: 0, top: 0 },
+          { input: bottomBuffer, left: 0, top: H - bottomH },
+          {
+            input: await buildOverlay(
+              overlaySVG,
+              avatarBuffer,
+              W,
+              H
+            ),
+            left: 0,
+            top: 0
+          }
+        ])
         .jpeg({ quality: 92 })
-        .toBuffer();
+        .toFile(files.output);
 
-      // ICA-style image attachment reply.
-      return api.sendMessage(
-        { body: "", attachment: Readable.from([output]) },
-        event.threadID,
-        err => {
-          if (err) console.error("[FakeChat] Send failed:", err);
-        },
-        event.messageID
-      );
+      await message.reply({
+        attachment: fs.createReadStream(files.output)
+      });
     } catch (error) {
-      console.error("[FakeChat] Error:", error);
-      return message.reply("❌ FakeChat error: " + error.message);
+      console.error("[IG-ROBOT] Fakechat error:", error.message);
+
+      return message.reply(
+        "❌ | Fakechat তৈরি করা যায়নি। Instagram DP resolver, template URL ও Sharp installation পরীক্ষা করো।"
+      );
+    } finally {
+      await Promise.all(
+        Object.values(files).map(file =>
+          fs.remove(file).catch(() => {})
+        )
+      );
     }
   }
 };
+
+async function buildOverlay(svg, avatarBuffer, width, height) {
+  // Embed avatar bytes as a data URI for SVG rendering.
+  const base64 = avatarBuffer.toString("base64");
+  const updated = svg.toString()
+    .replace(/href="avatar"/g, `href="data:image/png;base64,${base64}"`);
+
+  return sharp(Buffer.from(updated))
+    .resize(width, height)
+    .png()
+    .toBuffer();
+}
+
+async function downloadImage(url, destination) {
+  const response = await axios.get(url, {
+    responseType: "arraybuffer",
+    timeout: 20000,
+    maxRedirects: 5
+  });
+
+  const type = String(response.headers["content-type"] || "");
+
+  if (type && !type.toLowerCase().startsWith("image/")) {
+    throw new Error("URL did not return an image");
+  }
+
+  await fs.writeFile(destination, Buffer.from(response.data));
+}
+
+async function getInstagramAvatar(api, event, userID) {
+  const candidates = [];
+
+  if (typeof ica.resolveProfile === "function") {
+    candidates.push(async () =>
+      ica.resolveProfile([String(userID)], event, api)
+    );
+  }
+
+  if (api && typeof api.resolveProfile === "function") {
+    candidates.push(async () =>
+      api.resolveProfile(String(userID))
+    );
+  }
+
+  if (api && typeof api.getUserInfo === "function") {
+    candidates.push(async () =>
+      api.getUserInfo(String(userID))
+    );
+  }
+
+  for (const resolve of candidates) {
+    try {
+      const result = await resolve();
+
+      const user =
+        result?.[userID] ||
+        (Array.isArray(result) ? result[0] : result) ||
+        result;
+
+      const urls = [
+        user?.profilePicture,
+        user?.profile_pic_url_hd,
+        user?.profile_pic_url,
+        user?.profilePicUrl,
+        user?.profile_picture_url,
+        user?.avatarUrl,
+        user?.avatar,
+        user?.thumbSrc
+      ];
+
+      const url = urls.find(
+        value =>
+          typeof value === "string" &&
+          /^https?:\/\//i.test(value)
+      );
+
+      if (url) return url;
+    } catch (error) {
+      console.error("[IG-ROBOT] Profile lookup:", error.message);
+    }
+  }
+
+  throw new Error("Instagram profile picture unavailable through ICA");
+}
+
+function fitName(text, maxWidth) {
+  let name = text;
+
+  const estimate = value => [...value].reduce(
+    (sum, char) => sum + (char.charCodeAt(0) > 255 ? 28 : 15),
+    0
+  );
+
+  while (name.length > 1 && estimate(name) > maxWidth) {
+    name = name.slice(0, -1);
+  }
+
+  return name === text ? name : `${name}...`;
+}
