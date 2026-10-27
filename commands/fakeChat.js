@@ -2,17 +2,19 @@
  * File Name: fakechat.js
  * ICA: igbot-api
  * Author: Tanvir Ahmed (Tanvir143)
+ * GitHub: www.github.com/143tanvir
+ * Instagram: @ig.tanvir_ahmed
  */
 
 "use strict";
 
-const sharp = require("sharp");
 const axios = require("axios");
+const sharp = require("sharp");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const { Readable } = require("stream");
 
-const W = 1200;
-const H = 900;
+const WIDTH = 1200;
+const HEIGHT = 900;
 const BAR_URL = "https://i.imgur.com/zGfbY4Z.jpeg";
 
 let barCache = null;
@@ -21,16 +23,16 @@ module.exports = {
   config: {
     name: "fakechat",
     aliases: ["fc"],
-    version: "3.0.0",
-    author: "Tanvir143v2",
-    cooldown: 5,
+    version: "4.0.0",
+    author: "Tanvir143",
+    countDown: 5,
     role: 0,
-    shortDescription: "Create a fake DM chat image",
+    shortDescription: "Create a fake chat image",
     category: "Users Cmd",
     guide: "{pn} message text"
   },
 
-  onStart: async function ({ args, event, message, api }) {
+  onStart: async function ({ api, event, args, message }) {
     try {
       const text = args.join(" ").trim();
 
@@ -38,80 +40,106 @@ module.exports = {
         return message.reply("ব্যবহার: .fakechat তোমার মেসেজ");
       }
 
-      // Base image: black background, 4:3 ratio.
-      const canvas = createCanvas(W, H);
+      // Fixed 4:3 canvas — never stretch the final image.
+      const canvas = createCanvas(WIDTH, HEIGHT);
       const ctx = canvas.getContext("2d");
 
       ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-      // Wrap text by measured width, not character count.
-      const fontSize = 32;
-      const lineHeight = 46;
-      const maxWidth = 900;
+      const bubbleX = 145;
+      const bubbleY = 90;
+      const bubbleW = 1010;
+      const maxBubbleH = 665;
+      const textX = bubbleX + 30;
+      const textMaxW = bubbleW - 60;
+      const barH = 105;
 
-      ctx.font = `${fontSize}px sans-serif`;
+      let fontSize = 32;
+      let lineHeight;
+      let lines;
+      let bubbleH;
 
-      const lines = [];
-      let current = "";
+      function wrapText(value, maxWidth) {
+        const result = [];
 
-      for (const word of text.split(/\s+/)) {
-        const candidate = current ? `${current} ${word}` : word;
+        for (const paragraph of value.split("\n")) {
+          if (!paragraph.trim()) {
+            result.push("");
+            continue;
+          }
 
-        if (ctx.measureText(candidate).width <= maxWidth) {
-          current = candidate;
-        } else {
-          if (current) lines.push(current);
+          let line = "";
 
-          // Split unusually long words safely.
-          current = "";
-          for (const char of word) {
-            const next = current + char;
+          for (const word of paragraph.split(/\s+/)) {
+            // Split very long words by measured width.
+            let part = "";
 
-            if (ctx.measureText(next).width > maxWidth && current) {
-              lines.push(current);
-              current = char;
+            for (const char of word) {
+              const next = part + char;
+
+              if (ctx.measureText(next).width > maxWidth && part) {
+                if (line) {
+                  result.push(line);
+                  line = "";
+                }
+
+                result.push(part);
+                part = char;
+              } else {
+                part = next;
+              }
+            }
+
+            if (!part) continue;
+
+            const candidate = line ? `${line} ${part}` : part;
+
+            if (ctx.measureText(candidate).width <= maxWidth) {
+              line = candidate;
             } else {
-              current = next;
+              if (line) result.push(line);
+              line = part;
             }
           }
+
+          if (line) result.push(line);
         }
+
+        return result.length ? result : [""];
       }
 
-      if (current) lines.push(current);
+      // Fit text by changing font size, not image dimensions.
+      do {
+        lineHeight = Math.round(fontSize * 1.4);
+        ctx.font = `${fontSize}px sans-serif`;
+        lines = wrapText(text, textMaxW);
+        bubbleH = Math.max(100, 46 + lines.length * lineHeight);
 
-      const bubbleX = 150;
-      const bubbleY = 95;
-      const bubbleW = 1000;
-      const bubbleH = Math.max(100, 52 + lines.length * lineHeight);
-      const barH = 105;
-      const maxBubbleH = H - barH - bubbleY - 25;
+        if (bubbleH <= maxBubbleH) break;
+        fontSize -= 1;
+      } while (fontSize >= 17);
 
-      // Scale long messages to fit the image.
-      const scale = Math.min(1, maxBubbleH / bubbleH);
-
-      ctx.save();
-      ctx.translate(bubbleX, bubbleY);
-      ctx.scale(scale, scale);
-
-      // Gray message bubble.
+      // Draw bubble.
       ctx.fillStyle = "#303030";
       ctx.beginPath();
-      ctx.roundRect(0, 0, bubbleW, bubbleH, 32);
+      ctx.roundRect(bubbleX, bubbleY, bubbleW, Math.min(bubbleH, maxBubbleH), 30);
       ctx.fill();
 
-      // Message text.
+      // Draw readable text inside the bubble.
       ctx.fillStyle = "#ffffff";
       ctx.font = `${fontSize}px sans-serif`;
       ctx.textBaseline = "top";
 
-      lines.forEach((line, i) => {
-        ctx.fillText(line, 30, 28 + i * lineHeight);
+      lines.forEach((line, index) => {
+        const y = bubbleY + 24 + index * lineHeight;
+
+        if (y + lineHeight < bubbleY + maxBubbleH - 8) {
+          ctx.fillText(line, textX, y);
+        }
       });
 
-      ctx.restore();
-
-      // Profile picture of replied-to person, otherwise sender.
+      // Replied user's avatar, or sender's avatar by default.
       const targetID = event.messageReply?.senderID || event.senderID;
 
       try {
@@ -139,16 +167,16 @@ module.exports = {
 
           ctx.save();
           ctx.beginPath();
-          ctx.arc(80, 140, 38, 0, Math.PI * 2);
+          ctx.arc(80, 132, 38, 0, Math.PI * 2);
           ctx.clip();
-          ctx.drawImage(avatar, 42, 102, 76, 76);
+          ctx.drawImage(avatar, 42, 94, 76, 76);
           ctx.restore();
         }
-      } catch (err) {
-        console.log("[FakeChat] Avatar:", err.message);
+      } catch (error) {
+        console.log("[FakeChat] Avatar unavailable:", error.message);
       }
 
-      // Cache the supplied input-bar image in RAM.
+      // Cache input bar in memory; no temporary files.
       if (!barCache) {
         try {
           const response = await axios.get(BAR_URL, {
@@ -156,35 +184,53 @@ module.exports = {
             timeout: 12000,
             headers: { "User-Agent": "Mozilla/5.0" }
           });
+
           barCache = Buffer.from(response.data);
-        } catch (err) {
-          console.log("[FakeChat] Input bar:", err.message);
+        } catch (error) {
+          console.log("[FakeChat] Input bar unavailable:", error.message);
         }
       }
 
       if (barCache) {
         try {
           const bar = await loadImage(barCache);
-          ctx.drawImage(bar, 0, H - barH, W, barH);
-        } catch (err) {
-          console.log("[FakeChat] Bar render:", err.message);
+
+          // Fit the bar without distorting its aspect ratio.
+          const scale = Math.min(WIDTH / bar.width, barH / bar.height);
+          const drawW = bar.width * scale;
+          const drawH = bar.height * scale;
+
+          ctx.fillStyle = "#080808";
+          ctx.fillRect(0, HEIGHT - barH, WIDTH, barH);
+
+          ctx.drawImage(
+            bar,
+            (WIDTH - drawW) / 2,
+            HEIGHT - barH + (barH - drawH) / 2,
+            drawW,
+            drawH
+          );
+        } catch (error) {
+          console.log("[FakeChat] Input bar render failed:", error.message);
         }
       }
 
-      const imageBuffer = await sharp(canvas.toBuffer("image/png"))
-        .resize(W, H)
+      const output = await sharp(canvas.toBuffer("image/png"))
         .jpeg({ quality: 92 })
         .toBuffer();
 
-      return message.reply({
-        attachment: Readable.from([imageBuffer])
-      });
-    } catch (err) {
-      console.error("[FakeChat] Error:", err);
-
-      return message.reply(
-        "❌ FakeChat তৈরি করা যায়নি: " + err.message
+      // ICA-style image attachment reply.
+      return api.sendMessage(
+        { body: "", attachment: Readable.from([output]) },
+        event.threadID,
+        err => {
+          if (err) console.error("[FakeChat] Send failed:", err);
+        },
+        event.messageID
       );
+    } catch (error) {
+      console.error("[FakeChat] Error:", error);
+      return message.reply("❌ FakeChat error: " + error.message);
     }
   }
 };
