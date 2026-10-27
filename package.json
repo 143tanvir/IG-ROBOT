@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "os": "0.1.2",
-    "canvas": "3.2.3",
     "@napi-rs/canvas": "1.0.13",
     "ws": "8.22.0",
     "jimp": "1.6.1",
