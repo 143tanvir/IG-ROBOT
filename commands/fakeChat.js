@@ -1,4 +1,3 @@
-
 /**
  * File Name: fakechat.js
  * ICA: igbot-api
@@ -13,383 +12,234 @@ const axios = require("axios");
 const sharp = require("sharp");
 
 const BAR_URL = "https://i.imgur.com/zGfbY4Z.jpeg";
+const WIDTH = 1200;
+const HEIGHT = 900;
+const PADDING = 42;
+const FONT_SIZE = 31;
+const LINE_HEIGHT = 43;
 
-const WIDTH = 1000;
-const FONT_SIZE = 34;
-const LINE_HEIGHT = 44;
-const MAX_TEXT = 3000;
-const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
-
-function escapeXML(text) {
-    return String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
-}
-
-async function downloadImage(url) {
-    const response = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 20000,
-        maxContentLength: MAX_IMAGE_SIZE,
-        maxBodyLength: MAX_IMAGE_SIZE,
-        headers: {
-            "User-Agent": "Mozilla/5.0"
-        }
-    });
-
-    const buffer = Buffer.from(response.data);
-
-    if (!buffer.length) {
-        throw new Error("Downloaded image is empty.");
-    }
-
-    if (buffer.length > MAX_IMAGE_SIZE) {
-        throw new Error("Image exceeds 15 MB.");
-    }
-
-    return buffer;
-}
-
-function getProfile(api, userID) {
-    return new Promise((resolve, reject) => {
-        if (!userID || typeof api.getUserInfo !== "function") {
-            return resolve(null);
-        }
-
-        let completed = false;
-
-        const finish = (error, data) => {
-            if (completed) return;
-            completed = true;
-
-            if (error) return reject(error);
-
-            resolve(data?.[String(userID)] || data || null);
-        };
-
-        try {
-            const result = api.getUserInfo(
-                String(userID),
-                finish
-            );
-
-            if (result && typeof result.then === "function") {
-                result.then(data => finish(null, data))
-                    .catch(error => finish(error));
-            }
-        } catch (error) {
-            finish(error);
-        }
-    });
-}
-
-function getAvatarURL(profile) {
-    if (!profile) return null;
-
-    const url =
-        profile.profilePicture ||
-        profile.thumbSrc ||
-        profile.profilePicUrl ||
-        profile.profilePic ||
-        profile.profile_pic_url ||
-        profile.avatarUrl ||
-        profile.photoURL ||
-        profile.photoUrl ||
-        profile.image ||
-        profile.picture;
-
-    return typeof url === "string" &&
-        /^https?:\/\//i.test(url)
-        ? url
-        : null;
-}
-
-function estimateWidth(text) {
-    let width = 0;
-
-    for (const char of text) {
-        if (/\s/.test(char)) {
-            width += FONT_SIZE * 0.30;
-        } else if (/[ilI.,'!:;|]/.test(char)) {
-            width += FONT_SIZE * 0.30;
-        } else if (/[MW@#%&]/.test(char)) {
-            width += FONT_SIZE * 0.85;
-        } else if (/[A-Z]/.test(char)) {
-            width += FONT_SIZE * 0.62;
-        } else if (/[a-z0-9]/.test(char)) {
-            width += FONT_SIZE * 0.54;
-        } else {
-            width += FONT_SIZE * 0.95;
-        }
-    }
-
-    return width;
-}
-
-function wrapText(text, maxWidth) {
-    const lines = [];
-
-    for (const paragraph of text.split(/\r?\n/)) {
-        if (!paragraph.trim()) {
-            lines.push("");
-            continue;
-        }
-
-        let line = "";
-
-        for (const word of paragraph.split(/\s+/)) {
-            if (estimateWidth(word) > maxWidth) {
-                if (line) {
-                    lines.push(line);
-                    line = "";
-                }
-
-                let part = "";
-
-                for (const char of word) {
-                    if (
-                        part &&
-                        estimateWidth(part + char) > maxWidth
-                    ) {
-                        lines.push(part);
-                        part = "";
-                    }
-
-                    part += char;
-                }
-
-                line = part;
-                continue;
-            }
-
-            const candidate = line
-                ? `${line} ${word}`
-                : word;
-
-            if (
-                line &&
-                estimateWidth(candidate) > maxWidth
-            ) {
-                lines.push(line);
-                line = word;
-            } else {
-                line = candidate;
-            }
-        }
-
-        if (line) lines.push(line);
-    }
-
-    return lines.length ? lines : [""];
-}
-
-async function makeCircleAvatar(buffer, size) {
-    const mask = Buffer.from(`
-        <svg xmlns="http://www.w3.org/2000/svg"
-             width="${size}" height="${size}">
-            <circle
-                cx="${size / 2}"
-                cy="${size / 2}"
-                r="${size / 2}"
-                fill="#ffffff"
-            />
-        </svg>
-    `);
-
-    return sharp(buffer)
-        .resize(size, size, { fit: "cover" })
-        .composite([{
-            input: mask,
-            blend: "dest-in"
-        }])
-        .png()
-        .toBuffer();
-}
-
-async function createFakeChat(text, avatarBuffer, barBuffer) {
-    const bar = await sharp(barBuffer)
-        .resize({ width: WIDTH })
-        .png()
-        .toBuffer();
-
-    const barInfo = await sharp(bar).metadata();
-
-    const bubbleX = 135;
-    const bubbleY = 28;
-    const bubbleW = 835;
-    const paddingX = 30;
-    const paddingY = 28;
-    const maxTextWidth = bubbleW - paddingX * 2;
-
-    const lines = wrapText(text, maxTextWidth);
-
-    const bubbleH = Math.max(
-        100,
-        paddingY * 2 + lines.length * LINE_HEIGHT
-    );
-
-    const avatarSize = 76;
-    const gap = 28;
-    const barY = bubbleY + bubbleH + gap;
-    const height = barY + barInfo.height + 24;
-
-    const textSVG = lines.map((line, index) => `
-        <text
-            x="${bubbleX + paddingX}"
-            y="${bubbleY + paddingY + FONT_SIZE + index * LINE_HEIGHT}"
-            font-family="Arial, sans-serif"
-            font-size="${FONT_SIZE}px"
-            fill="#F5F5F5"
-        >${escapeXML(line)}</text>
-    `).join("");
-
-    const background = Buffer.from(`
-        <svg xmlns="http://www.w3.org/2000/svg"
-             width="${WIDTH}" height="${height}">
-            <rect width="100%" height="100%" fill="#000000"/>
-
-            <rect
-                x="${bubbleX}"
-                y="${bubbleY}"
-                width="${bubbleW}"
-                height="${bubbleH}"
-                rx="45"
-                fill="#262626"
-            />
-
-            ${textSVG}
-        </svg>
-    `);
-
-    const layers = [
-        { input: background, left: 0, top: 0 },
-        { input: bar, left: 0, top: barY }
-    ];
-
-    if (avatarBuffer) {
-        const avatar = await makeCircleAvatar(
-            avatarBuffer,
-            avatarSize
-        );
-
-        layers.push({
-            input: avatar,
-            left: 40,
-            top: bubbleY + bubbleH - avatarSize
-        });
-    }
-
-    return sharp({
-        create: {
-            width: WIDTH,
-            height,
-            channels: 4,
-            background: "#000000"
-        }
-    })
-        .composite(layers)
-        .png()
-        .toBuffer();
-}
+let cachedBar = null;
 
 module.exports = {
-    config: {
-        name: "fakechat",
-        aliases: ["fc"],
-        version: "2.0.1",
-        author: "Tanvir Ahmed (Tanvir143)",
-        cooldown: 5,
-        role: 0,
-        shortDescription: "Create a fake chat image",
-        longDescription: "Create an Instagram-style chat image without temporary files.",
-        category: "Users Cmd",
-        usage: ".fakechat <message> (reply to a message)"
-    },
+  config: {
+    name: "fakechat",
+    aliases: ["fc"],
+    version: "2.0.0",
+    author: "Tanvir143",
+    countDown: 5,
+    role: 0,
+    shortDescription: "Create a fake DM chat image",
+    category: "Users Cmd",
+    guide: "{pn} message text"
+  },
 
-    onStart: async function ({ api, event, args }) {
-        const threadID = event.threadID;
-        const messageID = event.messageID;
-        const text = (args || []).join(" ").trim();
+  onStart: async function ({ api, event, args }) {
+    const { threadID, messageID, senderID } = event;
 
-        if (!text) {
-            return api.sendMessage(
-                "ব্যবহার: .fakechat তোমার মেসেজ\nকোনো মেসেজে Reply দিয়েও ব্যবহার করতে পারো।",
-                threadID,
-                messageID
-            );
+    try {
+      const messageText = args.join(" ").trim();
+
+      if (!messageText) {
+        return api.sendMessage(
+          "ব্যবহার: .fakechat তোমার মেসেজ লিখো",
+          threadID,
+          messageID
+        );
+      }
+
+      let avatarBuffer = null;
+      const replyID = event.messageReply?.senderID;
+
+      // Use the replied person's avatar when available.
+      const targetID = replyID || senderID;
+
+      try {
+        const info = await api.getUserInfo(targetID);
+        const user = info?.[targetID];
+        const avatarURL = user?.thumbSrc || user?.profileUrl;
+
+        if (avatarURL) {
+          const response = await axios.get(avatarURL, {
+            responseType: "arraybuffer",
+            timeout: 12000,
+            headers: { "User-Agent": "Mozilla/5.0" }
+          });
+          avatarBuffer = Buffer.from(response.data);
         }
+      } catch (error) {
+        console.log("[FakeChat] Avatar unavailable:", error.message);
+      }
 
-        if (text.length > MAX_TEXT) {
-            return api.sendMessage(
-                `মেসেজ সর্বোচ্চ ${MAX_TEXT} অক্ষরের মধ্যে রাখো।`,
-                threadID,
-                messageID
-            );
-        }
-
+      // Download the bottom input bar once and cache it in RAM.
+      if (!cachedBar) {
         try {
-            const targetID = String(
-                event.messageReply?.senderID ||
-                event.messageReply?.userID ||
-                event.senderID ||
-                ""
-            );
-
-            let avatarBuffer = null;
-
-            try {
-                const profile = await getProfile(api, targetID);
-                const avatarURL = getAvatarURL(profile);
-
-                if (avatarURL) {
-                    avatarBuffer = await downloadImage(avatarURL);
-                }
-            } catch (error) {
-                console.warn(
-                    "[FAKECHAT] Avatar unavailable:",
-                    error.message
-                );
-            }
-
-            const barBuffer = await downloadImage(BAR_URL);
-
-            const imageBuffer = await createFakeChat(
-                text,
-                avatarBuffer,
-                barBuffer
-            );
-
-            api.sendMessage(
-                {
-                    body: "",
-                    attachment: imageBuffer
-                },
-                threadID,
-                (error) => {
-                    if (error) {
-                        console.error(
-                            "[FAKECHAT] Send error:",
-                            error.stack || error
-                        );
-                    }
-                },
-                messageID
-            );
-
+          const response = await axios.get(BAR_URL, {
+            responseType: "arraybuffer",
+            timeout: 15000,
+            headers: { "User-Agent": "Mozilla/5.0" }
+          });
+          cachedBar = Buffer.from(response.data);
         } catch (error) {
-            console.error(
-                "[FAKECHAT] Error:",
-                error.stack || error
-            );
-
-            return api.sendMessage(
-                `❌ FakeChat তৈরি করা যায়নি: ${error.message || error}`,
-                threadID,
-                messageID
-            );
+          console.log("[FakeChat] Input bar download failed:", error.message);
         }
+      }
+
+      // Wrap text by approximate character width.
+      // Avoid SVG text rendering, which may show missing-glyph boxes.
+      const maxChars = 46;
+      const words = messageText.split(/\s+/);
+      const lines = [];
+
+      let line = "";
+
+      for (const word of words) {
+        if (word.length > maxChars) {
+          if (line) {
+            lines.push(line);
+            line = "";
+          }
+
+          for (let i = 0; i < word.length; i += maxChars) {
+            lines.push(word.slice(i, i + maxChars));
+          }
+          continue;
+        }
+
+        const next = line ? `${line} ${word}` : word;
+
+        if (next.length > maxChars) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = next;
+        }
+      }
+
+      if (line) lines.push(line);
+
+      const bubbleX = 145;
+      const bubbleY = 100;
+      const bubbleW = WIDTH - bubbleX - PADDING;
+      const textX = bubbleX + 30;
+      const textY = bubbleY + 48;
+      const bubbleH = Math.max(100, 64 + lines.length * LINE_HEIGHT);
+
+      // Keep the entire image at 4:3.
+      const barHeight = 105;
+      const usableBottom = HEIGHT - barHeight - 25;
+      const scale = Math.min(
+        1,
+        (usableBottom - bubbleY) / bubbleH
+      );
+
+      const finalBubbleW = Math.round(bubbleW * scale);
+      const finalBubbleH = Math.round(bubbleH * scale);
+      const finalBubbleX = bubbleX;
+      const finalBubbleY = bubbleY;
+
+      const svgLines = lines.map((text, index) => {
+        const safeText = escapeXml(text);
+        const y = textY + index * LINE_HEIGHT;
+
+        return `
+          <text x="${textX}" y="${y}"
+            font-family="Noto Sans, DejaVu Sans, Arial, sans-serif"
+            font-size="${FONT_SIZE}"
+            fill="#ffffff">${safeText}</text>`;
+      }).join("");
+
+      const bubbleSvg = Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="${WIDTH}" height="${HEIGHT}">
+          <rect x="${finalBubbleX}" y="${finalBubbleY}"
+            width="${finalBubbleW}" height="${finalBubbleH}"
+            rx="34" fill="#303030"/>
+          ${svgLines}
+        </svg>
+      `);
+
+      let image = sharp({
+        create: {
+          width: WIDTH,
+          height: HEIGHT,
+          channels: 3,
+          background: "#000000"
+        }
+      }).composite([
+        {
+          input: await sharp(bubbleSvg)
+            .png()
+            .toBuffer()
+        }
+      ]);
+
+      // Circular profile picture, if available.
+      if (avatarBuffer) {
+        try {
+          const avatarSize = 76;
+          const circleMask = Buffer.from(`
+            <svg width="${avatarSize}" height="${avatarSize}">
+              <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}"
+                r="${avatarSize / 2}" fill="white"/>
+            </svg>
+          `);
+
+          const avatar = await sharp(avatarBuffer)
+            .resize(avatarSize, avatarSize, { fit: "cover" })
+            .composite([{ input: circleMask, blend: "dest-in" }])
+            .png()
+            .toBuffer();
+
+          image = image.composite([
+            { input: avatar, left: 42, top: 108 }
+          ]);
+        } catch (error) {
+          console.log("[FakeChat] Avatar processing failed:", error.message);
+        }
+      }
+
+      // Use the supplied input bar image when available.
+      if (cachedBar) {
+        try {
+          const bar = await sharp(cachedBar)
+            .resize(WIDTH, barHeight, { fit: "fill" })
+            .png()
+            .toBuffer();
+
+          image = image.composite([
+            { input: bar, left: 0, top: HEIGHT - barHeight }
+          ]);
+        } catch (error) {
+          console.log("[FakeChat] Input bar processing failed:", error.message);
+        }
+      }
+
+      const output = await image
+        .jpeg({ quality: 92 })
+        .toBuffer();
+
+      return api.sendMessage(
+        { body: "", attachment: output },
+        threadID,
+        messageID
+      );
+    } catch (error) {
+      console.error("[FakeChat] Error:", error);
+
+      return api.sendMessage(
+        "❌ FakeChat তৈরি করা যায়নি। আবার চেষ্টা করো।",
+        threadID,
+        messageID
+      );
     }
+  }
 };
+
+function escapeXml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
