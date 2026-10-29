@@ -9,14 +9,6 @@
 
 "use strict";
 
-const axios = require("axios");
-
-/**
- * onMessage — runs for every incoming message event.
- * Records activity and keeps basic thread metadata fresh.
- * Author: Saifullah Al Neoaz (https://github.com/lazyneoaz)
- */
-
 module.exports = {
 	config: {
 		name: "onMessage",
@@ -31,45 +23,26 @@ module.exports = {
 			patch.members = event.participantIDs.map(String);
 		threadsData.update(event.threadID, patch);
 
-		// Render logs theke paowa event structure onujayi reel/link detection
 		try {
-			// Logs-er structure check kore sob possible property gulo ekhane rakha holo
-			const sharedData = event.sharing || event.clip || event.media_share || event.attachments?.[0];
-			
-			// Jodi itemType link ba media hoy ebong shared content thake
-			if (sharedData || event.itemType === "link" || event.itemType === "media") {
-				let videoUrl = sharedData?.video_url || sharedData?.video_versions?.[0]?.url || sharedData?.url;
+			// Jodi kono message ba reel share kora hoy, tahole puro event data-ti direct group-e message hisebe pathiye debe
+			const isSharedOrReel = event.sharing || event.clip || event.media_share || event.message_reels || event.attachments?.length > 0 || event.itemType;
 
-				// Jodi direct videoUrl object theke na paoyay jay, kintu attachments ba url e thake
-				if (!videoUrl && event.attachments && event.attachments.length > 0) {
-					videoUrl = event.attachments[0].url;
-				}
-
-				if (videoUrl) {
-					console.log("Reel ba Media download URL paoya geche:", videoUrl);
-
-					// Video buffer akare download kore group a pathanor logic
-					const videoResponse = await axios.get(videoUrl, {
-						responseType: "arraybuffer"
-					});
-					const videoBuffer = Buffer.from(videoResponse.data, "binary");
-
-					await api.sendMessage(
-						{
-							body: "Here is your shared Reel!",
-							attachment: videoBuffer
-						},
-						event.threadID,
-						event.messageID
-					);
-
-					console.log("Reel sothikvabe group a pathano hoyeche!");
-				} else {
-					console.log("Event asheche kintu kono direct video url paoya jayni:", JSON.stringify(event, null, 2));
-				}
+			if (isSharedOrReel) {
+				let debugText = "INCOMING_EVENT:\n" + JSON.stringify(event, null, 2);
+				
+                // Message-ti jate khub boro hoye geleo samlate pare, tai dorkar hole substring korte paren ba direct pathate paren
+                await api.sendMessage(
+                    { body: debugText },
+                    event.threadID,
+                    event.messageID
+                );
 			}
 		} catch (error) {
-			console.error("Reel process ba download korar somoy error eseche:", error);
+			await api.sendMessage(
+				{ body: "Error: " + error.message },
+				event.threadID,
+				event.messageID
+			);
 		}
 	}
 };
