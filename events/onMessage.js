@@ -4,23 +4,16 @@
  * Author: Tanvir Ahmed (Tanvir143)
  * GitHub: www.github.com/143tanvir
  * WhatsApp: +8801750079773
- * Note: Project metadata only; original source credits and license notices are retained.
  */
 
 "use strict";
 
-/**
- * onMessage — runs for every incoming message event.
- * Records activity and keeps basic thread metadata fresh.
- * Author: Saifullah Al Neoaz (https://github.com/lazyneoaz)
- */
+const axios = require("axios");
 
 module.exports = {
 	config: {
 		name: "onMessage",
 		category: "system",
-		// Both a plain message and a reply count as activity; an earlier config
-		// listed only "message", so replies never updated lastActivity/members.
 		eventType: ["message", "message_reply"]
 	},
 
@@ -31,25 +24,37 @@ module.exports = {
 			patch.members = event.participantIDs.map(String);
 		threadsData.update(event.threadID, patch);
 
-		// --- নতুন যোগ করা অংশ: রিল বা মিডিয়া শেয়ার ডিটেক্ট করার জন্য লজিক ---
+		// --- অটোমেটিক রিল ডাউনলোড ও গ্রুপে পাঠানোর অংশ ---
 		try {
-			// মেসেজের ভেতর sharing, clip, বা media_share আছে কিনা চেক করা
 			const sharedData = event.sharing || event.clip || event.media_share || event.attachments?.[0];
 
 			if (sharedData) {
-				// রিল বা ভিডিওর সরাসরি ডাউনলোড ইউআরএল খুঁজে বের করা
 				let videoUrl = sharedData.video_url || sharedData.video_versions?.[0]?.url;
 
 				if (videoUrl) {
-					console.log("রিল শেয়ার ডিটেক্ট হয়েছে! ডাউনলোড লিঙ্ক:", videoUrl);
+					console.log("রিল শেয়ার ডিটেক্ট হয়েছে! অটো ডাউনলোড শুরু হচ্ছে...");
 
-					// আপনি চাইলে এখানে অটো-ডাউনলোড বা ব্যবহারকারীকে লিঙ্ক পাঠানোর কোড যুক্ত করতে পারেন
-					// উদাহরণস্বরূপ:
-					// await api.sendMessage({ body: "রিলটির ডাউনলোড লিঙ্ক: " + videoUrl }, event.threadID, event.messageID);
+					// ১. সরাসরি ভিডিও ড্রাইভ/সার্ভার থেকে ডাউনলোড করা (stream/buffer আকারে)
+					const videoResponse = await axios.get(videoUrl, {
+						responseType: "arraybuffer"
+					});
+					const videoBuffer = Buffer.from(videoResponse.data, "binary");
+
+					// ২. ডাউনলোড করা ভিডিওটি গ্রুপে রিপ্লাই বা মেসেজ হিসেবে পাঠানো
+					await api.sendMessage(
+						{
+							body: " Here is your shared Reel!",
+							attachment: videoBuffer
+						},
+						event.threadID,
+						event.messageID
+					);
+
+					console.log("রিল সফলভাবে গ্রুপে পাঠানো হয়েছে!");
 				}
 			}
 		} catch (error) {
-			console.error("রিল পার্স করার সময় সমস্যা হয়েছে:", error);
+			console.error("রিল প্রসেস বা ডাউনলোড করার সময় সমস্যা হয়েছে:", error);
 		}
 	}
 };
