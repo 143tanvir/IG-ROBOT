@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('assert');
+const login = require('../index');
+assert.strictEqual(typeof login, 'function');
+assert.strictEqual(typeof login.login, 'function');
+assert.strictEqual(login.CONSTANTS.ENGINE, 'ica-unofficial');
+assert(Array.isArray(login.methods));
+assert.strictEqual(typeof login.utils.normalizeAppState, 'function');
+assert.strictEqual(typeof login.engine.login, 'function');
+console.log('igbot-api local compatibility smoke test passed');
