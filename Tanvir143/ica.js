@@ -14,9 +14,9 @@
  * If the ICA package name or entry point changes, update this adapter first.
  * Bot commands/events should use the API instance supplied by the bot context.
  */
-const login = require("igbot-api");
+const login = require("@alaminnna/ica-unofficial");
 
 module.exports = Object.freeze({
   login: login.login || login.connect || login,
-  packageName: "igbot-api"
+  packageName: "@alaminnna/ica-unofficial"
 });
